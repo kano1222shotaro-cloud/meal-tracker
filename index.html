@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>食事管理トラッカー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<style>
+:root{
+  --bg:#0b0e15; --surface:#12161f; --surface-2:#181d29; --surface-3:#1f2533;
+  --border:#262d3d; --border-strong:#36405a;
+  --text:#e7eaf2; --text-dim:#9aa4ba; --text-faint:#69728a;
+  --accent:#5b9dff; --accent-soft:rgba(91,157,255,0.12); --accent-line:rgba(91,157,255,0.35);
+  --ok:#46c98b; --ok-soft:rgba(70,201,139,0.13);
+  --warn:#e0a93b; --warn-soft:rgba(224,169,59,0.13);
+  --danger:#f2557a; --danger-soft:rgba(242,85,122,0.13);
+  --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Noto Sans JP',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.6;font-weight:400;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,select,textarea{font-family:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.mono{font-family:var(--mono)}
+.app{max-width:920px;margin:0 auto;padding:0 14px 110px}
+.row{display:flex;align-items:center}
+.gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}
+.spread{display:flex;align-items:center;justify-content:space-between}
+.wrap{flex-wrap:wrap}
+.muted{color:var(--text-dim)}.faint{color:var(--text-faint)}
+.tiny{font-size:11px}.sm{font-size:12px}.med{font-size:13px}
+.b{font-weight:700}.center{text-align:center}.right{text-align:right}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:40;background:rgba(11,14,21,0.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.topbar-in{max-width:920px;margin:0 auto;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand{font-weight:900;font-size:15px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:3px;background:var(--accent);box-shadow:0 0 10px var(--accent-line)}
+.cloud{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:100px;border:1px solid var(--border);color:var(--text-faint);white-space:nowrap}
+.cloud.ok{color:var(--ok);border-color:rgba(70,201,139,.3)}
+.cloud.err{color:var(--danger);border-color:rgba(242,85,122,.3)}
+.cloud.sync{color:var(--accent);border-color:var(--accent-line)}
+
+/* cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
+.card.tight{padding:12px}
+.sect-h{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px}
+
+/* date nav */
+.datenav{display:flex;align-items:center;justify-content:center;gap:14px;padding:6px 0}
+.datenav .d{font-weight:700;font-size:16px;min-width:150px;text-align:center}
+.datenav .dow{color:var(--accent);margin-left:6px}
+.nav-btn{width:34px;height:34px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);font-size:16px;color:var(--text-dim);display:flex;align-items:center;justify-content:center}
+.nav-btn:active{background:var(--surface-3)}
+
+/* slot */
+.slot{margin-bottom:12px}
+.slot-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.slot-name{font-weight:700;font-size:13px;display:flex;align-items:center;gap:7px}
+.slot-kcal{font-family:var(--mono);font-size:12px;color:var(--text-dim)}
+.meal{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:6px}
+.meal:active{background:var(--surface-3)}
+.meal-name{font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.meal-sub{font-size:11px;color:var(--text-faint);margin-top:1px}
+.meal-kcal{font-family:var(--mono);font-size:12px;color:var(--text-dim);white-space:nowrap}
+.add-btn{width:100%;border:1px dashed var(--border-strong);border-radius:10px;padding:9px;color:var(--text-dim);font-size:12.5px;background:transparent}
+.add-btn:active{background:var(--surface-2)}
+.qty{font-family:var(--mono);font-size:11px;color:var(--accent);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:5px;padding:0 5px}
+
+/* badges */
+.badge{font-family:var(--mono);font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid var(--border);color:var(--text-faint);white-space:nowrap}
+.badge.pending{color:var(--warn);border-color:rgba(224,169,59,.35);background:var(--warn-soft)}
+.badge.hi{color:var(--ok);border-color:rgba(70,201,139,.3)}
+.badge.med{color:var(--warn);border-color:rgba(224,169,59,.3)}
+.badge.low{color:var(--danger);border-color:rgba(242,85,122,.3)}
+.badge.store{color:var(--accent);border-color:var(--accent-line);background:var(--accent-soft)}
+
+/* score ring */
+.score-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.comp-bar{height:7px;border-radius:4px;background:var(--surface-3);overflow:hidden;flex:1}
+.comp-fill{height:100%;border-radius:4px}
+
+/* nutrient table */
+.ntab{width:100%;border-collapse:collapse;font-size:12.5px}
+.ntab th{text-align:left;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);font-weight:500;padding:6px 6px;border-bottom:1px solid var(--border)}
+.ntab td{padding:7px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
+.ntab tr:last-child td{border-bottom:none}
+.ntab .nz{color:var(--text-faint)}
+.nbar{height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden;width:100%;min-width:46px}
+.nbar > div{height:100%;border-radius:3px}
+.val-ok{color:var(--ok)}.val-warn{color:var(--warn)}.val-danger{color:var(--danger)}.val-dim{color:var(--text-dim)}
+.grp-h td{background:var(--surface-2);font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);padding:5px 6px}
+
+/* tabs bottom */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(15,19,28,0.94);backdrop-filter:blur(12px);border-top:1px solid var(--border);display:flex;justify-content:center}
+.tabbar-in{display:flex;width:100%;max-width:920px}
+.tab{flex:1;padding:9px 4px calc(9px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--text-faint);font-size:10px}
+.tab.active{color:var(--accent)}
+.tab .ic{font-size:18px;line-height:1}
+
+/* inputs */
+.in{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:9px 11px;color:var(--text);font-size:13px;outline:none}
+.in:focus{border-color:var(--accent-line)}
+.lab{display:block;font-size:11px;color:var(--text-faint);margin-bottom:4px}
+.btn{background:var(--accent);color:#06101f;font-weight:700;border-radius:9px;padding:10px 14px;font-size:13px}
+.btn:active{filter:brightness(.92)}
+.btn.ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--border);font-weight:500}
+.btn.danger{background:var(--danger-soft);color:var(--danger);border:1px solid rgba(242,85,122,.3)}
+.btn.sm{padding:6px 10px;font-size:12px}
+.chip{font-size:12px;border:1px solid var(--border);background:var(--surface-2);border-radius:100px;padding:6px 13px;color:var(--text-dim)}
+.chip.on{color:var(--accent);border-color:var(--accent-line);background:var(--accent-soft)}
+.seg{display:flex;gap:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px}
+.seg button{flex:1;padding:7px;border-radius:7px;font-size:12px;color:var(--text-dim)}
+.seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+
+/* modal */
+.ov{position:fixed;inset:0;z-index:60;background:rgba(4,6,11,.66);display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:560px){.ov{align-items:center}}
+.sheet{width:100%;max-width:560px;max-height:90vh;overflow-y:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:18px 18px 0 0;padding:16px}
+@media(min-width:560px){.sheet{border-radius:18px}}
+.sheet-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;position:sticky;top:-16px;background:var(--surface);padding-top:4px}
+.sheet-title{font-weight:700;font-size:15px}
+.x{width:30px;height:30px;border-radius:8px;background:var(--surface-2);color:var(--text-dim);font-size:16px;display:flex;align-items:center;justify-content:center}
+.list-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 11px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;background:var(--surface-2)}
+.list-item:active{background:var(--surface-3)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.pfc{display:flex;height:14px;border-radius:7px;overflow:hidden;border:1px solid var(--border)}
+.pfc>div{height:100%}
+.hr{height:1px;background:var(--border);margin:12px 0;border:none}
+.empty{text-align:center;color:var(--text-faint);font-size:12.5px;padding:18px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+/* @jsxRuntime classic */
+const {useState,useEffect,useMemo,useRef,useCallback}=React;
+
+// ═══════════════ 埋め込みシード(食事摂取基準2025 18-29男性 / 採点 / 一般食) ═══════════════
+const SEED = {"schemaVersion": 1, "profile_targets": {"energy_kcal": {"target": 2250}, "protein_g": {"target": 65, "min_pct_e": 13, "max_pct_e": 20}, "fat_g": {"min_pct_e": 20, "max_pct_e": 30}, "sat_fat_g": {"max_pct_e": 7}, "n3_g": {"target": 2.2}, "n6_g": {"target": 12}, "cholesterol_mg": {"max": 200}, "carb_g": {"min_pct_e": 50, "max_pct_e": 65}, "sugar_g": {}, "fiber_g": {"min": 20}, "salt_g": {"max": 7.5, "ideal_max": 6.0}, "potassium_mg": {"min": 3000, "target": 2500}, "calcium_mg": {"target": 800, "max": 2500}, "magnesium_mg": {"target": 340}, "phosphorus_mg": {"target": 1000, "max": 3000}, "iron_mg": {"target": 7.0}, "zinc_mg": {"target": 9, "max": 40}, "copper_mg": {"target": 0.8, "max": 7}, "selenium_ug": {"target": 30, "max": 400}, "vit_a_ug": {"target": 850, "max": 2700}, "vit_d_ug": {"target": 9.0, "max": 100}, "vit_e_mg": {"target": 6.5, "max": 800}, "vit_b1_mg": {"target": 1.1}, "vit_b2_mg": {"target": 1.6}, "niacin_mg": {"target": 15, "max": 300}, "vit_b6_mg": {"target": 1.5, "max": 55}, "vit_b12_ug": {"target": 4.0}, "folate_ug": {"target": 240, "max": 900}, "vit_c_mg": {"target": 100}, "vegetable_g": {"min": 350}}, "scoring_config": {"version": 1, "meal_max": 85, "exercise_max": 15, "note": "あすけんの正確な算出式は非公開のため、食事摂取基準2025に基づく透明・調整可能な近似。weightは設定で変更可。", "components": [{"id": "energy", "label": "エネルギー適正", "weight": 15, "type": "target_band", "nutrient": "energy_kcal", "band": 0.1, "zero_at": 0.5}, {"id": "protein", "label": "たんぱく質", "weight": 6, "type": "pct_e_range", "nutrient": "protein_g", "kcal_per_g": 4}, {"id": "fat", "label": "脂質", "weight": 5, "type": "pct_e_range", "nutrient": "fat_g", "kcal_per_g": 9}, {"id": "carb", "label": "炭水化物", "weight": 5, "type": "pct_e_range", "nutrient": "carb_g", "kcal_per_g": 4}, {"id": "satfat", "label": "飽和脂肪酸", "weight": 7, "type": "max_pct_e", "nutrient": "sat_fat_g", "kcal_per_g": 9, "max_pct": 7}, {"id": "salt", "label": "食塩", "weight": 10, "type": "max", "nutrient": "salt_g", "limit_key": "max"}, {"id": "fiber", "label": "食物繊維", "weight": 7, "type": "min", "nutrient": "fiber_g", "target_key": "min"}, {"id": "vegetable", "label": "野菜", "weight": 6, "type": "min", "nutrient": "vegetable_g", "target_key": "min"}, {"id": "calcium", "label": "カルシウム", "weight": 6, "type": "min", "nutrient": "calcium_mg", "target_key": "target"}, {"id": "iron", "label": "鉄", "weight": 4, "type": "min", "nutrient": "iron_mg", "target_key": "target"}, {"id": "vitamins", "label": "ビタミン類", "weight": 14, "type": "min_avg", "nutrients": ["vit_a_ug", "vit_b1_mg", "vit_b2_mg", "vit_b6_mg", "vit_c_mg", "vit_d_ug"], "target_key": "target"}]}, "food_master_seed": [{"id": "rice_bowl", "name_ja": "ごはん（茶碗1杯）", "name_kana": "ごはん", "store": null, "category": "主食", "serving_desc": "精白米 約150g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 234, "protein_g": 3.75, "fat_g": 0.45, "sat_fat_g": 0.15, "n3_g": 0.0, "n6_g": 0.12, "cholesterol_mg": 0, "carb_g": 55.65, "sugar_g": 0.15, "fiber_g": 2.25, "salt_g": 0.0, "potassium_mg": 44, "calcium_mg": 4, "magnesium_mg": 10, "phosphorus_mg": 51, "iron_mg": 0.15, "zinc_mg": 0.9, "copper_mg": 0.15, "selenium_ug": 2, "vit_a_ug": 0, "vit_d_ug": 0.0, "vit_e_mg": 0.0, "vit_b1_mg": 0.03, "vit_b2_mg": 0.01, "niacin_mg": 0.3, "vit_b6_mg": 0.03, "vit_b12_ug": 0.0, "folate_ug": 4, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "rice", "g": 150}], "origin": "generic_seed", "favorite": false}, {"id": "brown_rice_bowl", "name_ja": "玄米ごはん（茶碗1杯）", "name_kana": "げんまいごはん", "store": null, "category": "主食", "serving_desc": "玄米 約150g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 228, "protein_g": 4.2, "fat_g": 1.5, "sat_fat_g": 0.35, "n3_g": 0.01, "n6_g": 0.45, "cholesterol_mg": 0, "carb_g": 53.4, "sugar_g": 0.45, "fiber_g": 2.1, "salt_g": 0.0, "potassium_mg": 142, "calcium_mg": 10, "magnesium_mg": 74, "phosphorus_mg": 195, "iron_mg": 0.9, "zinc_mg": 1.2, "copper_mg": 0.18, "selenium_ug": 2, "vit_a_ug": 0, "vit_d_ug": 0.0, "vit_e_mg": 0.75, "vit_b1_mg": 0.24, "vit_b2_mg": 0.03, "niacin_mg": 4.3, "vit_b6_mg": 0.32, "vit_b12_ug": 0.0, "folate_ug": 15, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "brown_rice", "g": 150}], "origin": "generic_seed", "favorite": false}, {"id": "onigiri", "name_ja": "おにぎり（1個）", "name_kana": "おにぎり", "store": null, "category": "主食", "serving_desc": "ごはん100g・のり・塩", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 159, "protein_g": 2.91, "fat_g": 0.34, "sat_fat_g": 0.11, "n3_g": 0.0, "n6_g": 0.08, "cholesterol_mg": 0, "carb_g": 37.54, "sugar_g": 0.1, "fiber_g": 1.86, "salt_g": 0.51, "potassium_mg": 53, "calcium_mg": 6, "magnesium_mg": 10, "phosphorus_mg": 41, "iron_mg": 0.21, "zinc_mg": 0.64, "copper_mg": 0.11, "selenium_ug": 1, "vit_a_ug": 23, "vit_d_ug": 0.0, "vit_e_mg": 0.04, "vit_b1_mg": 0.03, "vit_b2_mg": 0.03, "niacin_mg": 0.3, "vit_b6_mg": 0.03, "vit_b12_ug": 0.6, "folate_ug": 22, "vit_c_mg": 1.6, "vegetable_g": 0}, "ingredients": [{"k": "rice", "g": 100}, {"k": "nori", "g": 1}], "origin": "generic_seed", "favorite": false}, {"id": "bread_slice", "name_ja": "食パン（6枚切1枚）", "name_kana": "しょくぱん", "store": null, "category": "主食", "serving_desc": "6枚切 約60g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 149, "protein_g": 5.34, "fat_g": 2.46, "sat_fat_g": 1.14, "n3_g": 0.02, "n6_g": 0.96, "cholesterol_mg": 0, "carb_g": 27.84, "sugar_g": 2.52, "fiber_g": 2.52, "salt_g": 0.72, "potassium_mg": 52, "calcium_mg": 13, "magnesium_mg": 11, "phosphorus_mg": 40, "iron_mg": 0.3, "zinc_mg": 0.48, "copper_mg": 0.07, "selenium_ug": 13, "vit_a_ug": 0, "vit_d_ug": 0.0, "vit_e_mg": 0.24, "vit_b1_mg": 0.04, "vit_b2_mg": 0.03, "niacin_mg": 0.7, "vit_b6_mg": 0.04, "vit_b12_ug": 0.0, "folate_ug": 18, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "bread", "g": 60}], "origin": "generic_seed", "favorite": false}, {"id": "toast_butter", "name_ja": "バタートースト", "name_kana": "ばたーとーすと", "store": null, "category": "主食", "serving_desc": "食パン60g＋バター8g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 209, "protein_g": 5.34, "fat_g": 9.06, "sat_fat_g": 5.64, "n3_g": 0.02, "n6_g": 0.96, "cholesterol_mg": 0, "carb_g": 27.84, "sugar_g": 2.52, "fiber_g": 2.52, "salt_g": 0.82, "potassium_mg": 52, "calcium_mg": 13, "magnesium_mg": 11, "phosphorus_mg": 40, "iron_mg": 0.3, "zinc_mg": 0.48, "copper_mg": 0.07, "selenium_ug": 13, "vit_a_ug": 0, "vit_d_ug": 0.0, "vit_e_mg": 0.24, "vit_b1_mg": 0.04, "vit_b2_mg": 0.03, "niacin_mg": 0.7, "vit_b6_mg": 0.04, "vit_b12_ug": 0.0, "folate_ug": 18, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "bread", "g": 60}], "origin": "generic_seed", "favorite": false}, {"id": "natto_pack", "name_ja": "納豆（1パック）", "name_kana": "なっとう", "store": null, "category": "副菜", "serving_desc": "糸引き納豆 45g＋たれ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 96, "protein_g": 7.42, "fat_g": 4.5, "sat_fat_g": 0.65, "n3_g": 0.3, "n6_g": 2.24, "cholesterol_mg": 0, "carb_g": 7.45, "sugar_g": 3.48, "fiber_g": 3.02, "salt_g": 0.6, "potassium_mg": 297, "calcium_mg": 40, "magnesium_mg": 45, "phosphorus_mg": 86, "iron_mg": 1.48, "zinc_mg": 0.85, "copper_mg": 0.27, "selenium_ug": 7, "vit_a_ug": 0, "vit_d_ug": 0.0, "vit_e_mg": 0.23, "vit_b1_mg": 0.03, "vit_b2_mg": 0.25, "niacin_mg": 0.5, "vit_b6_mg": 0.11, "vit_b12_ug": 0.0, "folate_ug": 54, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "natto", "g": 45}], "origin": "generic_seed", "favorite": false}, {"id": "miso_soup", "name_ja": "味噌汁（1杯）", "name_kana": "みそしる", "store": null, "category": "汁物", "serving_desc": "みそ16g・豆腐30g・わかめ・ねぎ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 53, "protein_g": 4.21, "fat_g": 2.44, "sat_fat_g": 0.39, "n3_g": 0.19, "n6_g": 1.21, "cholesterol_mg": 0, "carb_g": 4.43, "sugar_g": 0.3, "fiber_g": 1.31, "salt_g": 2.01, "potassium_mg": 118, "calcium_mg": 48, "magnesium_mg": 32, "phosphorus_mg": 56, "iron_mg": 1.11, "zinc_mg": 0.38, "copper_mg": 0.11, "selenium_ug": 3, "vit_a_ug": 5, "vit_d_ug": 0.0, "vit_e_mg": 0.17, "vit_b1_mg": 0.04, "vit_b2_mg": 0.03, "niacin_mg": 0.3, "vit_b6_mg": 0.04, "vit_b12_ug": 0.0, "folate_ug": 19, "vit_c_mg": 0.8, "vegetable_g": 5}, "ingredients": [{"k": "miso", "g": 16}, {"k": "tofu", "g": 30}, {"k": "wakame", "g": 2}, {"k": "green_onion", "g": 5}], "origin": "generic_seed", "favorite": false}, {"id": "grilled_salmon", "name_ja": "焼き鮭（1切れ）", "name_kana": "やきさけ", "store": null, "category": "主菜", "serving_desc": "しろさけ 約80g・塩", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 99, "protein_g": 17.84, "fat_g": 3.28, "sat_fat_g": 0.64, "n3_g": 0.8, "n6_g": 0.08, "cholesterol_mg": 47, "carb_g": 0.08, "sugar_g": 0.0, "fiber_g": 0.0, "salt_g": 0.76, "potassium_mg": 280, "calcium_mg": 11, "magnesium_mg": 22, "phosphorus_mg": 192, "iron_mg": 0.4, "zinc_mg": 0.4, "copper_mg": 0.06, "selenium_ug": 25, "vit_a_ug": 9, "vit_d_ug": 25.6, "vit_e_mg": 0.96, "vit_b1_mg": 0.12, "vit_b2_mg": 0.17, "niacin_mg": 5.4, "vit_b6_mg": 0.51, "vit_b12_ug": 4.7, "folate_ug": 16, "vit_c_mg": 0.8, "vegetable_g": 0}, "ingredients": [{"k": "salmon", "g": 80}], "origin": "generic_seed", "favorite": false}, {"id": "grilled_mackerel", "name_ja": "さばの塩焼き（1切れ）", "name_kana": "さばのしおやき", "store": null, "category": "主菜", "serving_desc": "まさば 約80g・塩", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 169, "protein_g": 16.48, "fat_g": 13.44, "sat_fat_g": 3.68, "n3_g": 1.68, "n6_g": 0.32, "cholesterol_mg": 49, "carb_g": 0.24, "sugar_g": 0.0, "fiber_g": 0.0, "salt_g": 1.04, "potassium_mg": 264, "calcium_mg": 5, "magnesium_mg": 24, "phosphorus_mg": 176, "iron_mg": 0.96, "zinc_mg": 0.88, "copper_mg": 0.1, "selenium_ug": 56, "vit_a_ug": 30, "vit_d_ug": 4.1, "vit_e_mg": 1.04, "vit_b1_mg": 0.17, "vit_b2_mg": 0.25, "niacin_mg": 9.6, "vit_b6_mg": 0.47, "vit_b12_ug": 10.4, "folate_ug": 9, "vit_c_mg": 0.8, "vegetable_g": 0}, "ingredients": [{"k": "mackerel", "g": 80}], "origin": "generic_seed", "favorite": false}, {"id": "boiled_egg", "name_ja": "ゆで卵（1個）", "name_kana": "ゆでたまご", "store": null, "category": "副菜", "serving_desc": "鶏卵 50g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 71, "protein_g": 6.1, "fat_g": 5.1, "sat_fat_g": 1.55, "n3_g": 0.06, "n6_g": 0.65, "cholesterol_mg": 185, "carb_g": 0.2, "sugar_g": 0.15, "fiber_g": 0.0, "salt_g": 0.4, "potassium_mg": 65, "calcium_mg": 23, "magnesium_mg": 5, "phosphorus_mg": 85, "iron_mg": 0.75, "zinc_mg": 0.55, "copper_mg": 0.03, "selenium_ug": 12, "vit_a_ug": 105, "vit_d_ug": 1.9, "vit_e_mg": 0.65, "vit_b1_mg": 0.03, "vit_b2_mg": 0.18, "niacin_mg": 0.1, "vit_b6_mg": 0.04, "vit_b12_ug": 0.6, "folate_ug": 24, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "egg", "g": 50}], "origin": "generic_seed", "favorite": false}, {"id": "fried_egg", "name_ja": "目玉焼き（卵1個）", "name_kana": "めだまやき", "store": null, "category": "副菜", "serving_desc": "鶏卵50g＋油", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 106, "protein_g": 6.1, "fat_g": 9.1, "sat_fat_g": 2.03, "n3_g": 0.29, "n6_g": 2.25, "cholesterol_mg": 185, "carb_g": 0.2, "sugar_g": 0.15, "fiber_g": 0.0, "salt_g": 0.5, "potassium_mg": 65, "calcium_mg": 23, "magnesium_mg": 5, "phosphorus_mg": 85, "iron_mg": 0.75, "zinc_mg": 0.55, "copper_mg": 0.03, "selenium_ug": 12, "vit_a_ug": 105, "vit_d_ug": 1.9, "vit_e_mg": 1.17, "vit_b1_mg": 0.03, "vit_b2_mg": 0.18, "niacin_mg": 0.1, "vit_b6_mg": 0.04, "vit_b12_ug": 0.6, "folate_ug": 24, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "egg", "g": 50}, {"k": "oil", "g": 4}], "origin": "generic_seed", "favorite": false}, {"id": "hiyayakko", "name_ja": "冷奴（1人前）", "name_kana": "ひややっこ", "store": null, "category": "副菜", "serving_desc": "木綿豆腐100g・しょうゆ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 78, "protein_g": 7.46, "fat_g": 4.9, "sat_fat_g": 0.79, "n3_g": 0.31, "n6_g": 2.6, "cholesterol_mg": 0, "carb_g": 1.97, "sugar_g": 0.4, "fiber_g": 1.1, "salt_g": 0.87, "potassium_mg": 133, "calcium_mg": 95, "magnesium_mg": 61, "phosphorus_mg": 98, "iron_mg": 1.6, "zinc_mg": 0.65, "copper_mg": 0.16, "selenium_ug": 5, "vit_a_ug": 0, "vit_d_ug": 0.0, "vit_e_mg": 0.2, "vit_b1_mg": 0.09, "vit_b2_mg": 0.05, "niacin_mg": 0.3, "vit_b6_mg": 0.06, "vit_b12_ug": 0.0, "folate_ug": 14, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "tofu", "g": 100}, {"k": "soy_sauce", "g": 6}], "origin": "generic_seed", "favorite": false}, {"id": "karaage", "name_ja": "鶏の唐揚げ（5個）", "name_kana": "とりのからあげ", "store": null, "category": "主菜", "serving_desc": "鶏もも100g・衣・揚げ油", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 305, "protein_g": 16.6, "fat_g": 23.2, "sat_fat_g": 5.48, "n3_g": 0.64, "n6_g": 6.2, "cholesterol_mg": 89, "carb_g": 9.0, "sugar_g": 0.0, "fiber_g": 0.0, "salt_g": 1.4, "potassium_mg": 290, "calcium_mg": 5, "magnesium_mg": 21, "phosphorus_mg": 170, "iron_mg": 0.6, "zinc_mg": 1.6, "copper_mg": 0.04, "selenium_ug": 17, "vit_a_ug": 40, "vit_d_ug": 0.4, "vit_e_mg": 1.87, "vit_b1_mg": 0.1, "vit_b2_mg": 0.15, "niacin_mg": 4.8, "vit_b6_mg": 0.25, "vit_b12_ug": 0.3, "folate_ug": 13, "vit_c_mg": 3.0, "vegetable_g": 0}, "ingredients": [{"k": "chicken_thigh", "g": 100}, {"k": "oil", "g": 9}], "origin": "generic_seed", "favorite": false}, {"id": "shogayaki", "name_ja": "豚の生姜焼き", "name_kana": "ぶたのしょうがやき", "store": null, "category": "主菜", "serving_desc": "豚ロース110g・油・たれ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 333, "protein_g": 22.15, "fat_g": 26.15, "sat_fat_g": 9.18, "n3_g": 0.41, "n6_g": 4.32, "cholesterol_mg": 67, "carb_g": 3.37, "sugar_g": 6.1, "fiber_g": 0.45, "salt_g": 1.27, "potassium_mg": 417, "calcium_mg": 12, "magnesium_mg": 32, "phosphorus_mg": 220, "iron_mg": 0.56, "zinc_mg": 1.89, "copper_mg": 0.07, "selenium_ug": 24, "vit_a_ug": 7, "vit_d_ug": 0.1, "vit_e_mg": 1.01, "vit_b1_mg": 0.78, "vit_b2_mg": 0.18, "niacin_mg": 8.2, "vit_b6_mg": 0.41, "vit_b12_ug": 0.3, "folate_ug": 8, "vit_c_mg": 3.2, "vegetable_g": 30}, "ingredients": [{"k": "pork_loin", "g": 110}, {"k": "oil", "g": 5}, {"k": "onion", "g": 30}, {"k": "soy_sauce", "g": 8}], "origin": "generic_seed", "favorite": false}, {"id": "hamburg", "name_ja": "ハンバーグ（1個）", "name_kana": "はんばーぐ", "store": null, "category": "主菜", "serving_desc": "合いびき130g・玉ねぎ・卵・パン粉", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 401, "protein_g": 22.04, "fat_g": 30.37, "sat_fat_g": 10.99, "n3_g": 0.37, "n6_g": 3.06, "cholesterol_mg": 123, "carb_g": 12.92, "sugar_g": 2.37, "fiber_g": 0.45, "salt_g": 1.68, "potassium_mg": 370, "calcium_mg": 17, "magnesium_mg": 26, "phosphorus_mg": 206, "iron_mg": 1.8, "zinc_mg": 4.73, "copper_mg": 0.1, "selenium_ug": 20, "vit_a_ug": 35, "vit_d_ug": 0.6, "vit_e_mg": 1.28, "vit_b1_mg": 0.13, "vit_b2_mg": 0.27, "niacin_mg": 5.1, "vit_b6_mg": 0.41, "vit_b12_ug": 1.4, "folate_ug": 19, "vit_c_mg": 3.3, "vegetable_g": 30}, "ingredients": [{"k": "beef_mix", "g": 120}, {"k": "onion", "g": 30}, {"k": "egg", "g": 10}, {"k": "oil", "g": 4}], "origin": "generic_seed", "favorite": false}, {"id": "gyudon", "name_ja": "牛丼（並）", "name_kana": "ぎゅうどん", "store": null, "category": "主食", "serving_desc": "ごはん260g・牛肉80g・玉ねぎ・つゆ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 675, "protein_g": 21.7, "fat_g": 17.72, "sat_fat_g": 7.07, "n3_g": 0.08, "n6_g": 1.11, "cholesterol_mg": 58, "carb_g": 102.69, "sugar_g": 12.62, "fiber_g": 4.8, "salt_g": 1.9, "potassium_mg": 420, "calcium_mg": 26, "magnesium_mg": 47, "phosphorus_mg": 246, "iron_mg": 1.68, "zinc_mg": 4.83, "copper_mg": 0.35, "selenium_ug": 16, "vit_a_ug": 10, "vit_d_ug": 0.2, "vit_e_mg": 0.46, "vit_b1_mg": 0.15, "vit_b2_mg": 0.2, "niacin_mg": 4.1, "vit_b6_mg": 0.4, "vit_b12_ug": 0.9, "folate_ug": 27, "vit_c_mg": 5.0, "vegetable_g": 60}, "ingredients": [{"k": "rice", "g": 260}, {"k": "beef_mix", "g": 80}, {"k": "onion", "g": 60}, {"k": "soy_sauce", "g": 12}], "origin": "generic_seed", "favorite": false}, {"id": "oyakodon", "name_ja": "親子丼", "name_kana": "おやこどん", "store": null, "category": "主食", "serving_desc": "ごはん260g・鶏80g・卵60g・玉ねぎ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 664, "protein_g": 28.27, "fat_g": 18.3, "sat_fat_g": 5.64, "n3_g": 0.15, "n6_g": 3.08, "cholesterol_mg": 293, "carb_g": 100.85, "sugar_g": 9.24, "fiber_g": 4.5, "salt_g": 1.85, "potassium_mg": 484, "calcium_mg": 49, "magnesium_mg": 51, "phosphorus_mg": 355, "iron_mg": 1.93, "zinc_mg": 3.67, "copper_mg": 0.34, "selenium_ug": 32, "vit_a_ug": 158, "vit_d_ug": 2.6, "vit_e_mg": 1.38, "vit_b1_mg": 0.19, "vit_b2_mg": 0.39, "niacin_mg": 4.6, "vit_b6_mg": 0.38, "vit_b12_ug": 0.9, "folate_ug": 57, "vit_c_mg": 5.2, "vegetable_g": 40}, "ingredients": [{"k": "rice", "g": 260}, {"k": "chicken_thigh", "g": 80}, {"k": "egg", "g": 60}, {"k": "onion", "g": 40}, {"k": "soy_sauce", "g": 10}], "origin": "generic_seed", "favorite": false}, {"id": "curry_rice", "name_ja": "カレーライス", "name_kana": "かれーらいす", "store": null, "category": "主食", "serving_desc": "ごはん260g・ルウ・豚・野菜", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 776, "protein_g": 20.11, "fat_g": 24.14, "sat_fat_g": 10.18, "n3_g": 0.09, "n6_g": 3.32, "cholesterol_mg": 38, "carb_g": 129.38, "sugar_g": 10.58, "fiber_g": 8.65, "salt_g": 4.32, "potassium_mg": 728, "calcium_mg": 65, "magnesium_mg": 59, "phosphorus_mg": 269, "iron_mg": 2.22, "zinc_mg": 2.82, "copper_mg": 0.44, "selenium_ug": 14, "vit_a_ug": 222, "vit_d_ug": 0.1, "vit_e_mg": 1.12, "vit_b1_mg": 0.52, "vit_b2_mg": 0.16, "niacin_mg": 5.8, "vit_b6_mg": 0.44, "vit_b12_ug": 0.1, "folate_ug": 36, "vit_c_mg": 19.8, "vegetable_g": 80}, "ingredients": [{"k": "rice", "g": 260}, {"k": "curry_roux", "g": 40}, {"k": "pork_loin", "g": 50}, {"k": "potato", "g": 50}, {"k": "carrot", "g": 30}, {"k": "onion", "g": 50}], "origin": "generic_seed", "favorite": false}, {"id": "fried_rice", "name_ja": "チャーハン", "name_kana": "ちゃーはん", "store": null, "category": "主食", "serving_desc": "ごはん250g・卵・ハム・油・ねぎ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 594, "protein_g": 16.21, "fat_g": 18.54, "sat_fat_g": 3.48, "n3_g": 0.78, "n6_g": 5.73, "cholesterol_mg": 197, "carb_g": 94.03, "sugar_g": 0.95, "fiber_g": 4.0, "salt_g": 2.7, "potassium_mg": 216, "calcium_mg": 36, "magnesium_mg": 28, "phosphorus_mg": 241, "iron_mg": 1.17, "zinc_mg": 2.4, "copper_mg": 0.29, "selenium_ug": 19, "vit_a_ug": 112, "vit_d_ug": 2.0, "vit_e_mg": 2.28, "vit_b1_mg": 0.27, "vit_b2_mg": 0.27, "niacin_mg": 1.9, "vit_b6_mg": 0.16, "vit_b12_ug": 0.8, "folate_ug": 39, "vit_c_mg": 11.2, "vegetable_g": 10}, "ingredients": [{"k": "rice", "g": 250}, {"k": "egg", "g": 50}, {"k": "ham", "g": 20}, {"k": "oil", "g": 12}, {"k": "green_onion", "g": 10}], "origin": "generic_seed", "favorite": false}, {"id": "ramen_shoyu", "name_ja": "ラーメン（醤油）", "name_kana": "らーめん", "store": null, "category": "主食", "serving_desc": "中華麺230g・スープ・チャーシュー・ねぎ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 465, "protein_g": 14.97, "fat_g": 13.15, "sat_fat_g": 4.69, "n3_g": 0.03, "n6_g": 1.09, "cholesterol_mg": 18, "carb_g": 65.31, "sugar_g": 1.21, "fiber_g": 6.35, "salt_g": 6.49, "potassium_mg": 261, "calcium_mg": 53, "magnesium_mg": 25, "phosphorus_mg": 125, "iron_mg": 0.82, "zinc_mg": 1.44, "copper_mg": 0.14, "selenium_ug": 18, "vit_a_ug": 11, "vit_d_ug": 0.0, "vit_e_mg": 0.14, "vit_b1_mg": 0.24, "vit_b2_mg": 0.07, "niacin_mg": 2.9, "vit_b6_mg": 0.16, "vit_b12_ug": 0.1, "folate_ug": 20, "vit_c_mg": 2.4, "vegetable_g": 15}, "ingredients": [{"k": "ramen_noodle", "g": 230}, {"k": "pork_loin", "g": 30}, {"k": "green_onion", "g": 15}], "origin": "generic_seed", "favorite": false}, {"id": "kake_udon", "name_ja": "かけうどん", "name_kana": "かけうどん", "store": null, "category": "主食", "serving_desc": "ゆでうどん250g・つゆ・ねぎ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 260, "protein_g": 8.64, "fat_g": 1.01, "sat_fat_g": 0.25, "n3_g": 0.0, "n6_g": 0.38, "cholesterol_mg": 0, "carb_g": 54.72, "sugar_g": 0.85, "fiber_g": 3.5, "salt_g": 4.75, "potassium_mg": 42, "calcium_mg": 19, "magnesium_mg": 16, "phosphorus_mg": 48, "iron_mg": 0.53, "zinc_mg": 0.28, "copper_mg": 0.1, "selenium_ug": 5, "vit_a_ug": 6, "vit_d_ug": 0.0, "vit_e_mg": 0.03, "vit_b1_mg": 0.06, "vit_b2_mg": 0.03, "niacin_mg": 0.3, "vit_b6_mg": 0.04, "vit_b12_ug": 0.0, "folate_ug": 12, "vit_c_mg": 1.4, "vegetable_g": 10}, "ingredients": [{"k": "udon", "g": 250}, {"k": "green_onion", "g": 10}], "origin": "generic_seed", "favorite": false}, {"id": "zaru_soba", "name_ja": "ざるそば", "name_kana": "ざるそば", "store": null, "category": "主食", "serving_desc": "ゆでそば180g・つゆ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 264, "protein_g": 10.64, "fat_g": 1.8, "sat_fat_g": 0.36, "n3_g": 0.04, "n6_g": 0.72, "cholesterol_mg": 0, "carb_g": 46.8, "sugar_g": 3.72, "fiber_g": 5.22, "salt_g": 2.5, "potassium_mg": 61, "calcium_mg": 16, "magnesium_mg": 49, "phosphorus_mg": 144, "iron_mg": 1.44, "zinc_mg": 0.72, "copper_mg": 0.18, "selenium_ug": 9, "vit_a_ug": 0, "vit_d_ug": 0.0, "vit_e_mg": 0.18, "vit_b1_mg": 0.09, "vit_b2_mg": 0.04, "niacin_mg": 0.9, "vit_b6_mg": 0.11, "vit_b12_ug": 0.0, "folate_ug": 14, "vit_c_mg": 0.0, "vegetable_g": 0}, "ingredients": [{"k": "soba", "g": 180}], "origin": "generic_seed", "favorite": false}, {"id": "meat_pasta", "name_ja": "ミートソーススパゲティ", "name_kana": "みーとそーす", "store": null, "category": "主食", "serving_desc": "パスタ240g・ミートソース", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 593, "protein_g": 23.7, "fat_g": 20.94, "sat_fat_g": 6.27, "n3_g": 0.44, "n6_g": 3.94, "cholesterol_mg": 43, "carb_g": 84.1, "sugar_g": 13.56, "fiber_g": 8.6, "salt_g": 3.58, "potassium_mg": 418, "calcium_mg": 35, "magnesium_mg": 70, "phosphorus_mg": 250, "iron_mg": 2.74, "zinc_mg": 3.88, "copper_mg": 0.29, "selenium_ug": 38, "vit_a_ug": 43, "vit_d_ug": 0.1, "vit_e_mg": 2.08, "vit_b1_mg": 0.25, "vit_b2_mg": 0.21, "niacin_mg": 4.6, "vit_b6_mg": 0.35, "vit_b12_ug": 0.7, "folate_ug": 38, "vit_c_mg": 15.4, "vegetable_g": 120}, "ingredients": [{"k": "pasta", "g": 240}, {"k": "beef_mix", "g": 60}, {"k": "tomato", "g": 80}, {"k": "onion", "g": 40}, {"k": "oil", "g": 6}], "origin": "generic_seed", "favorite": false}, {"id": "green_salad", "name_ja": "グリーンサラダ", "name_kana": "ぐりーんさらだ", "store": null, "category": "副菜", "serving_desc": "レタス・キャベツ・トマト・ドレッシング", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 93, "protein_g": 0.98, "fat_g": 8.16, "sat_fat_g": 0.98, "n3_g": 0.49, "n6_g": 3.23, "cholesterol_mg": 0, "carb_g": 5.49, "sugar_g": 3.71, "fiber_g": 1.66, "salt_g": 0.61, "potassium_mg": 254, "calcium_mg": 26, "magnesium_mg": 12, "phosphorus_mg": 30, "iron_mg": 0.31, "zinc_mg": 0.2, "copper_mg": 0.04, "selenium_ug": 0, "vit_a_ug": 99, "vit_d_ug": 0.0, "vit_e_mg": 1.59, "vit_b1_mg": 0.06, "vit_b2_mg": 0.03, "niacin_mg": 0.5, "vit_b6_mg": 0.1, "vit_b12_ug": 0.0, "folate_ug": 64, "vit_c_mg": 20.9, "vegetable_g": 120}, "ingredients": [{"k": "lettuce", "g": 40}, {"k": "cabbage", "g": 30}, {"k": "tomato", "g": 40}, {"k": "carrot", "g": 10}, {"k": "oil", "g": 8}], "origin": "generic_seed", "favorite": false}, {"id": "potato_salad", "name_ja": "ポテトサラダ", "name_kana": "ぽてとさらだ", "store": null, "category": "副菜", "serving_desc": "じゃがいも80g・にんじん・マヨ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 153, "protein_g": 1.35, "fat_g": 11.4, "sat_fat_g": 0.99, "n3_g": 0.75, "n6_g": 4.55, "cholesterol_mg": 8, "carb_g": 14.66, "sugar_g": 1.74, "fiber_g": 1.38, "salt_g": 0.9, "potassium_mg": 375, "calcium_mg": 9, "magnesium_mg": 17, "phosphorus_mg": 46, "iron_mg": 0.38, "zinc_mg": 0.22, "copper_mg": 0.08, "selenium_ug": 0, "vit_a_ug": 112, "vit_d_ug": 0.0, "vit_e_mg": 2.01, "vit_b1_mg": 0.08, "vit_b2_mg": 0.04, "niacin_mg": 1.3, "vit_b6_mg": 0.18, "vit_b12_ug": 0.0, "folate_ug": 19, "vit_c_mg": 23.3, "vegetable_g": 15}, "ingredients": [{"k": "potato", "g": 80}, {"k": "carrot", "g": 15}, {"k": "mayo", "g": 15}], "origin": "generic_seed", "favorite": false}, {"id": "ohitashi", "name_ja": "ほうれん草のお浸し", "name_kana": "ほうれんそうのおひたし", "store": null, "category": "副菜", "serving_desc": "ほうれん草70g・しょうゆ", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 20, "protein_g": 2.21, "fat_g": 0.35, "sat_fat_g": 0.03, "n3_g": 0.07, "n6_g": 0.1, "cholesterol_mg": 0, "carb_g": 3.19, "sugar_g": 0.28, "fiber_g": 2.52, "salt_g": 0.73, "potassium_mg": 362, "calcium_mg": 50, "magnesium_mg": 31, "phosphorus_mg": 38, "iron_mg": 0.71, "zinc_mg": 0.53, "copper_mg": 0.08, "selenium_ug": 3, "vit_a_ug": 315, "vit_d_ug": 0.0, "vit_e_mg": 1.82, "vit_b1_mg": 0.04, "vit_b2_mg": 0.09, "niacin_mg": 0.3, "vit_b6_mg": 0.06, "vit_b12_ug": 0.0, "folate_ug": 79, "vit_c_mg": 13.3, "vegetable_g": 70}, "ingredients": [{"k": "spinach", "g": 70}, {"k": "soy_sauce", "g": 5}], "origin": "generic_seed", "favorite": false}, {"id": "kinpira", "name_ja": "きんぴらごぼう", "name_kana": "きんぴらごぼう", "store": null, "category": "副菜", "serving_desc": "ごぼう40g・にんじん・油", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 59, "protein_g": 1.21, "fat_g": 3.07, "sat_fat_g": 0.37, "n3_g": 0.18, "n6_g": 1.22, "cholesterol_mg": 0, "carb_g": 7.95, "sugar_g": 4.33, "fiber_g": 2.7, "salt_g": 0.74, "potassium_mg": 192, "calcium_mg": 24, "magnesium_mg": 26, "phosphorus_mg": 37, "iron_mg": 0.39, "zinc_mg": 0.4, "copper_mg": 0.09, "selenium_ug": 1, "vit_a_ug": 108, "vit_d_ug": 0.0, "vit_e_mg": 0.69, "vit_b1_mg": 0.03, "vit_b2_mg": 0.03, "niacin_mg": 0.3, "vit_b6_mg": 0.06, "vit_b12_ug": 0.0, "folate_ug": 32, "vit_c_mg": 2.1, "vegetable_g": 55}, "ingredients": [{"k": "gobo", "g": 40}, {"k": "carrot", "g": 15}, {"k": "oil", "g": 3}, {"k": "soy_sauce", "g": 5}], "origin": "generic_seed", "favorite": false}, {"id": "banana_1", "name_ja": "バナナ（1本）", "name_kana": "ばなな", "store": null, "category": "果物", "serving_desc": "可食 約90g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 84, "protein_g": 0.99, "fat_g": 0.18, "sat_fat_g": 0.06, "n3_g": 0.0, "n6_g": 0.04, "cholesterol_mg": 0, "carb_g": 20.25, "sugar_g": 16.2, "fiber_g": 0.99, "salt_g": 0.0, "potassium_mg": 324, "calcium_mg": 5, "magnesium_mg": 29, "phosphorus_mg": 24, "iron_mg": 0.27, "zinc_mg": 0.18, "copper_mg": 0.08, "selenium_ug": 1, "vit_a_ug": 4, "vit_d_ug": 0.0, "vit_e_mg": 0.45, "vit_b1_mg": 0.05, "vit_b2_mg": 0.04, "niacin_mg": 0.6, "vit_b6_mg": 0.34, "vit_b12_ug": 0.0, "folate_ug": 23, "vit_c_mg": 14.4, "vegetable_g": 0}, "ingredients": [{"k": "banana", "g": 90}], "origin": "generic_seed", "favorite": false}, {"id": "apple_half", "name_ja": "りんご（1/2個）", "name_kana": "りんご", "store": null, "category": "果物", "serving_desc": "可食 約120g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 64, "protein_g": 0.12, "fat_g": 0.24, "sat_fat_g": 0.04, "n3_g": 0.0, "n6_g": 0.05, "cholesterol_mg": 0, "carb_g": 19.44, "sugar_g": 14.4, "fiber_g": 2.28, "salt_g": 0.0, "potassium_mg": 144, "calcium_mg": 4, "magnesium_mg": 4, "phosphorus_mg": 14, "iron_mg": 0.12, "zinc_mg": 0.0, "copper_mg": 0.06, "selenium_ug": 0, "vit_a_ug": 2, "vit_d_ug": 0.0, "vit_e_mg": 0.12, "vit_b1_mg": 0.02, "vit_b2_mg": 0.01, "niacin_mg": 0.1, "vit_b6_mg": 0.05, "vit_b12_ug": 0.0, "folate_ug": 2, "vit_c_mg": 4.8, "vegetable_g": 0}, "ingredients": [{"k": "apple", "g": 120}], "origin": "generic_seed", "favorite": false}, {"id": "yogurt_1", "name_ja": "プレーンヨーグルト（1個）", "name_kana": "よーぐると", "store": null, "category": "乳製品", "serving_desc": "100g", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 56, "protein_g": 3.6, "fat_g": 3.0, "sat_fat_g": 1.83, "n3_g": 0.02, "n6_g": 0.08, "cholesterol_mg": 12, "carb_g": 4.9, "sugar_g": 4.9, "fiber_g": 0.0, "salt_g": 0.1, "potassium_mg": 170, "calcium_mg": 120, "magnesium_mg": 12, "phosphorus_mg": 100, "iron_mg": 0.0, "zinc_mg": 0.4, "copper_mg": 0.01, "selenium_ug": 3, "vit_a_ug": 33, "vit_d_ug": 0.0, "vit_e_mg": 0.1, "vit_b1_mg": 0.04, "vit_b2_mg": 0.14, "niacin_mg": 0.1, "vit_b6_mg": 0.04, "vit_b12_ug": 0.1, "folate_ug": 11, "vit_c_mg": 1.0, "vegetable_g": 0}, "ingredients": [{"k": "yogurt", "g": 100}], "origin": "generic_seed", "favorite": false}, {"id": "milk_glass", "name_ja": "牛乳（コップ1杯）", "name_kana": "ぎゅうにゅう", "store": null, "category": "乳製品", "serving_desc": "200ml", "source": "seibun", "confidence": "med", "last_verified": "2026-06-24", "nutrients": {"energy_kcal": 122, "protein_g": 6.6, "fat_g": 7.6, "sat_fat_g": 4.66, "n3_g": 0.04, "n6_g": 0.2, "cholesterol_mg": 24, "carb_g": 9.6, "sugar_g": 9.6, "fiber_g": 0.0, "salt_g": 0.2, "potassium_mg": 300, "calcium_mg": 220, "magnesium_mg": 20, "phosphorus_mg": 186, "iron_mg": 0.04, "zinc_mg": 0.8, "copper_mg": 0.02, "selenium_ug": 6, "vit_a_ug": 76, "vit_d_ug": 0.6, "vit_e_mg": 0.2, "vit_b1_mg": 0.08, "vit_b2_mg": 0.3, "niacin_mg": 0.2, "vit_b6_mg": 0.06, "vit_b12_ug": 0.6, "folate_ug": 10, "vit_c_mg": 2.0, "vegetable_g": 0}, "ingredients": [{"k": "milk", "g": 200}], "origin": "generic_seed", "favorite": false}]};
+
+// ═══════════════ 栄養素メタ(表示順・ラベル・単位・グループ) ═══════════════
+const NUTRI = [
+  {k:"energy_kcal",label:"エネルギー",unit:"kcal",g:"エネルギー",dec:0},
+  {k:"protein_g",label:"たんぱく質",unit:"g",g:"PFC",dec:1},
+  {k:"fat_g",label:"脂質",unit:"g",g:"PFC",dec:1},
+  {k:"carb_g",label:"炭水化物",unit:"g",g:"PFC",dec:1},
+  {k:"sat_fat_g",label:"飽和脂肪酸",unit:"g",g:"脂質の質",dec:1},
+  {k:"n3_g",label:"n-3系脂肪酸",unit:"g",g:"脂質の質",dec:2},
+  {k:"n6_g",label:"n-6系脂肪酸",unit:"g",g:"脂質の質",dec:1},
+  {k:"cholesterol_mg",label:"コレステロール",unit:"mg",g:"脂質の質",dec:0},
+  {k:"sugar_g",label:"糖類",unit:"g",g:"炭水化物の質",dec:1},
+  {k:"fiber_g",label:"食物繊維",unit:"g",g:"炭水化物の質",dec:1},
+  {k:"salt_g",label:"食塩相当量",unit:"g",g:"ミネラル(多量)",dec:1},
+  {k:"potassium_mg",label:"カリウム",unit:"mg",g:"ミネラル(多量)",dec:0},
+  {k:"calcium_mg",label:"カルシウム",unit:"mg",g:"ミネラル(多量)",dec:0},
+  {k:"magnesium_mg",label:"マグネシウム",unit:"mg",g:"ミネラル(多量)",dec:0},
+  {k:"phosphorus_mg",label:"リン",unit:"mg",g:"ミネラル(多量)",dec:0},
+  {k:"iron_mg",label:"鉄",unit:"mg",g:"ミネラル(微量)",dec:1},
+  {k:"zinc_mg",label:"亜鉛",unit:"mg",g:"ミネラル(微量)",dec:1},
+  {k:"copper_mg",label:"銅",unit:"mg",g:"ミネラル(微量)",dec:2},
+  {k:"selenium_ug",label:"セレン",unit:"µg",g:"ミネラル(微量)",dec:0},
+  {k:"vit_a_ug",label:"ビタミンA",unit:"µgRAE",g:"ビタミン(脂溶性)",dec:0},
+  {k:"vit_d_ug",label:"ビタミンD",unit:"µg",g:"ビタミン(脂溶性)",dec:1},
+  {k:"vit_e_mg",label:"ビタミンE",unit:"mg",g:"ビタミン(脂溶性)",dec:1},
+  {k:"vit_b1_mg",label:"ビタミンB1",unit:"mg",g:"ビタミン(水溶性)",dec:2},
+  {k:"vit_b2_mg",label:"ビタミンB2",unit:"mg",g:"ビタミン(水溶性)",dec:2},
+  {k:"niacin_mg",label:"ナイアシン",unit:"mgNE",g:"ビタミン(水溶性)",dec:1},
+  {k:"vit_b6_mg",label:"ビタミンB6",unit:"mg",g:"ビタミン(水溶性)",dec:2},
+  {k:"vit_b12_ug",label:"ビタミンB12",unit:"µg",g:"ビタミン(水溶性)",dec:1},
+  {k:"folate_ug",label:"葉酸",unit:"µg",g:"ビタミン(水溶性)",dec:0},
+  {k:"vit_c_mg",label:"ビタミンC",unit:"mg",g:"ビタミン(水溶性)",dec:0},
+  {k:"vegetable_g",label:"野菜量",unit:"g",g:"その他",dec:0},
+];
+const NKEYS = NUTRI.map(n=>n.k);
+const NMETA = Object.fromEntries(NUTRI.map(n=>[n.k,n]));
+const SLOTS = [
+  {id:"breakfast",label:"朝食",icon:"🌅"},
+  {id:"lunch",label:"昼食",icon:"🍱"},
+  {id:"dinner",label:"夕食",icon:"🌙"},
+  {id:"snack",label:"間食",icon:"🍪"},
+];
+const SLOTMAP = Object.fromEntries(SLOTS.map(s=>[s.id,s]));
+const CATEGORIES = ["主食","主菜","副菜","汁物","果物","乳製品","定食","セット","その他"];
+
+// ═══════════════ 日付ユーティリティ ═══════════════
+function toStr(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+function parseD(s){const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);}
+function today(){return toStr(new Date());}
+function addD(s,n){const d=parseD(s);d.setDate(d.getDate()+n);return toStr(d);}
+function monthOf(s){return s.slice(0,7);}
+function dow(s){return ["日","月","火","水","木","金","土"][parseD(s).getDay()];}
+function fmtDate(s){const d=parseD(s);return `${d.getMonth()+1}月${d.getDate()}日`;}
+function fmtShort(s){const d=parseD(s);return `${d.getMonth()+1}/${d.getDate()}`;}
+function isWeekend(s){const w=parseD(s).getDay();return w===0||w===6;}
+const gid=()=>Math.random().toString(36).slice(2,9);
+const nowTs=()=>{const d=new Date();const z=-d.getTimezoneOffset();const sign=z>=0?"+":"-";const hh=String(Math.floor(Math.abs(z)/60)).padStart(2,"0");const mm=String(Math.abs(z)%60).padStart(2,"0");return toStr(d)+"T"+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+sign+hh+":"+mm;};
+function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
+function round(x,d){const p=Math.pow(10,d||0);return Math.round((x||0)*p)/p;}
+function fmtNum(x,d){if(x===0)return "0";const r=round(x,d);return d>0?r.toFixed(d):String(r);}
+
+// ═══════════════ ストレージ & GAS同期(study-tracker方式) ═══════════════
+const SK="meal-v1";
+const CFGK="meal-cfg-v1";
+function loadCfg(){try{return JSON.parse(localStorage.getItem(CFGK))||{};}catch{return {};}}
+function saveCfg(c){try{localStorage.setItem(CFGK,JSON.stringify(c));}catch{}}
+let CFG=loadCfg();
+const DEFAULT_GAS_URL="";          // デプロイ後に設定画面で貼り付け
+const DEFAULT_API_KEY="kano_meal_2026_secret";
+function gasUrl(){return (CFG.gasUrl||DEFAULT_GAS_URL||"").trim();}
+function apiKey(){return (CFG.apiKey||DEFAULT_API_KEY||"").trim();}
+function loadLocal(){try{const r=localStorage.getItem(SK);return r?JSON.parse(r):null;}catch{return null;}}
+function saveLocal(d){try{localStorage.setItem(SK,JSON.stringify(d));}catch{}}
+
+async function loadCloud(){
+  const url=gasUrl();if(!url)return null;
+  try{
+    const res=await fetch(url+"?key="+encodeURIComponent(apiKey()));
+    if(res.ok){const d=await res.json();if(d&&d.food_master!==undefined)return d;}
+  }catch{}
+  return new Promise((resolve)=>{
+    const cb="_mcb"+Date.now();
+    const timer=setTimeout(()=>{delete window[cb];resolve(null);},9000);
+    window[cb]=(data)=>{clearTimeout(timer);delete window[cb];try{if(typeof data==="string")data=JSON.parse(data);resolve(data&&data.food_master!==undefined?data:null);}catch{resolve(null);}};
+    const s=document.createElement("script");
+    s.src=url+"?key="+encodeURIComponent(apiKey())+"&callback="+cb;
+    s.onerror=()=>{clearTimeout(timer);delete window[cb];resolve(null);};
+    document.head.appendChild(s);
+    s.addEventListener("load",()=>{try{document.head.removeChild(s);}catch{}});
+  });
+}
+async function saveCloud(d){
+  const url=gasUrl();if(!url)return false;
+  const json=JSON.stringify(d);
+  try{
+    const res=await fetch(url+"?key="+encodeURIComponent(apiKey()),{method:"POST",body:json,headers:{"Content-Type":"text/plain"}});
+    if(res.ok)return true;
+  }catch{}
+  return new Promise((resolve)=>{
+    try{
+      const fn="msf"+Date.now();
+      const ifr=document.createElement("iframe");ifr.name=fn;ifr.style.cssText="display:none";document.body.appendChild(ifr);
+      let done=false;
+      const onMsg=(ev)=>{if(ev.data==="gas_save_ok"){done=true;fin(true);}if(ev.data==="gas_save_error"){done=true;fin(false);}};
+      window.addEventListener("message",onMsg);
+      const fin=(ok)=>{window.removeEventListener("message",onMsg);setTimeout(()=>{try{document.body.removeChild(frm);}catch{}try{document.body.removeChild(ifr);}catch{}},500);resolve(ok);};
+      const frm=document.createElement("form");frm.method="POST";frm.action=url;frm.target=fn;
+      const k=document.createElement("input");k.type="hidden";k.name="key";k.value=apiKey();frm.appendChild(k);
+      const di=document.createElement("input");di.type="hidden";di.name="data";di.value=json;frm.appendChild(di);
+      document.body.appendChild(frm);frm.submit();
+      setTimeout(()=>{if(!done)fin(true);},7000);
+    }catch{resolve(false);}
+  });
+}
+
+// ═══════════════ 初期データ(シードからの構築) ═══════════════
+function deepCopy(o){return JSON.parse(JSON.stringify(o));}
+function defaultProfile(){
+  return {sex:"male",birth_year:1996,height_cm:175,activity_level:"low",targets:deepCopy(SEED.profile_targets)};
+}
+function emptyNutrients(){const o={};NKEYS.forEach(k=>o[k]=0);return o;}
+function freshState(){
+  return {schemaVersion:1,profile:defaultProfile(),scoring_config:deepCopy(SEED.scoring_config),
+    food_master:deepCopy(SEED.food_master_seed),logs:{}};
+}
+// 読み込んだstateの欠損補完(マイグレーション)
+function migrate(st){
+  if(!st||typeof st!=="object")return freshState();
+  if(!st.profile)st.profile=defaultProfile();
+  if(!st.profile.targets)st.profile.targets=deepCopy(SEED.profile_targets);
+  if(!st.scoring_config)st.scoring_config=deepCopy(SEED.scoring_config);
+  if(!Array.isArray(st.food_master)||!st.food_master.length)st.food_master=deepCopy(SEED.food_master_seed);
+  if(!st.logs||typeof st.logs!=="object")st.logs={};
+  st.schemaVersion=1;
+  // 各food.nutrientsの欠損キーを0で補完
+  st.food_master.forEach(f=>{if(!f.nutrients)f.nutrients=emptyNutrients();NKEYS.forEach(k=>{if(typeof f.nutrients[k]!=="number")f.nutrients[k]=0;});});
+  return st;
+}
+async function loadAll(){
+  const cloud=await loadCloud();
+  if(cloud){const m=migrate(cloud);saveLocal(m);return {state:m,from:"cloud"};}
+  const local=loadLocal();
+  if(local)return {state:migrate(local),from:"local"};
+  return {state:freshState(),from:"new"};
+}
+
+// ═══════════════ 栄養計算 ═══════════════
+function foodById(master,id){return master.find(f=>f.id===id)||null;}
+// セット(Myメニュー)は members:[{food_id,qty}] を持つ。展開して栄養合算。
+function foodNutrients(master,food){
+  if(!food)return emptyNutrients();
+  if(food.members&&food.members.length){
+    const tot=emptyNutrients();
+    food.members.forEach(m=>{const f=foodById(master,m.food_id);if(f){const n=foodNutrients(master,f);NKEYS.forEach(k=>tot[k]+=(n[k]||0)*(m.qty||1));}});
+    return tot;
+  }
+  return food.nutrients||emptyNutrients();
+}
+function mealNutrients(master,meal){
+  if(meal.needs_lookup||!meal.food_id)return {n:emptyNutrients(),pending:true};
+  const f=foodById(master,meal.food_id);
+  if(!f)return {n:emptyNutrients(),pending:true};
+  const base=foodNutrients(master,f);const q=meal.qty||1;const o={};
+  NKEYS.forEach(k=>o[k]=(base[k]||0)*q);
+  return {n:o,pending:false};
+}
+function dayMeals(st,date){const mo=monthOf(date);const mon=st.logs[mo];if(!mon||!mon.days||!mon.days[date])return [];return mon.days[date].meals||[];}
+function sumNutrients(list){const o=emptyNutrients();list.forEach(n=>NKEYS.forEach(k=>o[k]+=(n[k]||0)));return o;}
+function dayTotals(st,date){
+  const meals=dayMeals(st,date);
+  const per={};SLOTS.forEach(s=>per[s.id]=emptyNutrients());
+  let anyPending=false;
+  meals.forEach(m=>{const {n,pending}=mealNutrients(st.food_master,m);if(pending)anyPending=true;NKEYS.forEach(k=>per[m.slot][k]+=(n[k]||0));});
+  const total=sumNutrients(SLOTS.map(s=>per[s.id]));
+  return {total,per,anyPending,count:meals.length};
+}
+function pctE(n,key){const kcalPer={protein_g:4,fat_g:9,carb_g:4,sat_fat_g:9};const e=n.energy_kcal||0;if(e<=0)return 0;return (n[key]*(kcalPer[key]||0))/e*100;}
+
+// 充足率の状態判定(過不足)。返り値: {status:'low'|'ok'|'high'|'na', pct, color}
+function nutrientStatus(key,value,targets,energy){
+  const t=targets[key]||{};
+  // %E系(PFC)
+  const pctKeys={protein_g:4,fat_g:9,carb_g:4};
+  if((t.min_pct_e!==undefined||t.max_pct_e!==undefined)&&pctKeys[key]){
+    if(energy<=0)return {status:"na"};
+    const p=value*pctKeys[key]/energy*100;
+    if(t.min_pct_e!==undefined&&p<t.min_pct_e-1)return {status:"low",pct:p};
+    if(t.max_pct_e!==undefined&&p>t.max_pct_e+1)return {status:"high",pct:p};
+    return {status:"ok",pct:p};
+  }
+  if(key==="sat_fat_g"&&t.max_pct_e!==undefined){
+    if(energy<=0)return {status:"na"};
+    const p=value*9/energy*100;return p>t.max_pct_e?{status:"high",pct:p}:{status:"ok",pct:p};
+  }
+  // 上限型(食塩・コレステロール)
+  if(t.max!==undefined&&t.target===undefined&&t.min===undefined){
+    const lim=t.ideal_max||t.max;const ratio=lim>0?value/lim:0;
+    if(value>t.max)return {status:"high",ratio};
+    if(value>lim)return {status:"warnhigh",ratio};
+    return {status:"ok",ratio};
+  }
+  // 目標/推奨型(下限重視)
+  const goal=t.target!==undefined?t.target:(t.min!==undefined?t.min:null);
+  if(goal===null)return {status:"na"};
+  const ratio=goal>0?value/goal:0;
+  let status="ok";
+  if(ratio<0.85)status="low";
+  if(t.max!==undefined&&value>t.max)status="high";
+  return {status,ratio};
+}
+function statusColor(s){
+  if(s==="low")return "var(--warn)";
+  if(s==="high")return "var(--danger)";
+  if(s==="warnhigh")return "var(--warn)";
+  if(s==="ok")return "var(--ok)";
+  return "var(--text-faint)";
+}
+
+// ═══════════════ 採点(食事スコア。運動はCoworkが+exercise_max) ═══════════════
+function attainMin(v,target){if(target<=0)return 1;return clamp(v/target,0,1);}
+function attainMax(v,limit){if(limit<=0)return v<=0?1:0;return clamp(2-v/limit,0,1);} // limit以下=1, 2*limitで0
+function scoreDay(totals,profile,cfg){
+  const t=profile.targets||{};const e=totals.energy_kcal||0;
+  const comps=(cfg.components||[]).map(c=>{
+    let a=0;
+    if(c.type==="target_band"){
+      const tg=(t[c.nutrient]||{}).target||0;const r=tg>0?(totals[c.nutrient]||0)/tg:0;
+      const band=c.band||0.1, zero=c.zero_at||0.5;
+      const dev=Math.abs(r-1);
+      if(dev<=band)a=1; else {const span=(1-zero); a=clamp(1-(dev-band)/span,0,1);}
+    } else if(c.type==="pct_e_range"){
+      const tt=t[c.nutrient]||{};const p=e>0?(totals[c.nutrient]||0)*(c.kcal_per_g)/e*100:0;
+      const lo=tt.min_pct_e,hi=tt.max_pct_e;
+      if(p>=lo&&p<=hi)a=1;
+      else if(p<lo)a=clamp(1-(lo-p)/lo,0,1);
+      else a=clamp(1-(p-hi)/hi,0,1);
+    } else if(c.type==="max_pct_e"){
+      const p=e>0?(totals[c.nutrient]||0)*(c.kcal_per_g)/e*100:0;a=attainMax(p,c.max_pct);
+    } else if(c.type==="max"){
+      const lim=(t[c.nutrient]||{})[c.limit_key]||0;a=attainMax(totals[c.nutrient]||0,lim);
+    } else if(c.type==="min"){
+      const tg=(t[c.nutrient]||{})[c.target_key]||0;a=attainMin(totals[c.nutrient]||0,tg);
+    } else if(c.type==="min_avg"){
+      const arr=c.nutrients.map(nk=>{const tg=(t[nk]||{})[c.target_key||"target"]||0;return attainMin(totals[nk]||0,tg);});
+      a=arr.reduce((s,x)=>s+x,0)/(arr.length||1);
+    }
+    return {id:c.id,label:c.label,weight:c.weight,attain:a,score:a*c.weight};
+  });
+  const mealScore=comps.reduce((s,c)=>s+c.score,0);
+  return {comps,mealScore,mealMax:cfg.meal_max||100,exerciseMax:cfg.exercise_max||0};
+}
+function scoreColor(ratio){if(ratio>=0.85)return "var(--ok)";if(ratio>=0.6)return "var(--warn)";return "var(--danger)";}
+
+// ═══════════════ 小物 ═══════════════
+function Modal({title,onClose,children,footer}){
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="sheet" onClick={e=>e.stopPropagation()}>
+        <div className="sheet-h"><div className="sheet-title">{title}</div><button className="x" onClick={onClose}>✕</button></div>
+        {children}
+        {footer&&<div style={{marginTop:14}}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+function ConfBadge({c}){const m={high:"hi",med:"med",low:"low"};const t={high:"高",med:"中",low:"低"};return <span className={"badge "+(m[c]||"")}>{t[c]||c}</span>;}
+function QtyStepper({val,onChange}){
+  return (
+    <div className="row gap6">
+      <button className="x" onClick={()=>onChange(Math.max(0.25,round((val-0.25),2)))}>−</button>
+      <div className="mono" style={{minWidth:42,textAlign:"center",fontSize:13}}>×{val}</div>
+      <button className="x" onClick={()=>onChange(round(val+0.25,2))}>＋</button>
+    </div>
+  );
+}
+
+// ═══════════════ スコア表示 ═══════════════
+function ScoreRing({score,max,size=92}){
+  const r=size/2-8, c=2*Math.PI*r, ratio=max>0?clamp(score/max,0,1):0;
+  const col=scoreColor(ratio);
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--surface-3)" strokeWidth="8"/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth="8" strokeLinecap="round"
+        strokeDasharray={`${c*ratio} ${c}`} transform={`rotate(-90 ${size/2} ${size/2})`}/>
+      <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" fill="var(--text)" style={{fontFamily:"var(--mono)",fontWeight:700,fontSize:22}}>{Math.round(score)}</text>
+      <text x="50%" y="64%" textAnchor="middle" dominantBaseline="middle" fill="var(--text-faint)" style={{fontFamily:"var(--mono)",fontSize:10}}>/ {max}</text>
+    </svg>
+  );
+}
+function ScoreCard({totals,profile,cfg,pending}){
+  const sc=useMemo(()=>scoreDay(totals,profile,cfg),[totals,profile,cfg]);
+  return (
+    <div className="card">
+      <div className="sect-h">食事スコア（運動 +{sc.exerciseMax}点はCoworkが加算）</div>
+      <div className="score-wrap">
+        <ScoreRing score={sc.mealScore} max={sc.mealMax}/>
+        <div style={{flex:1,minWidth:200}}>
+          {sc.comps.map(c=>(
+            <div key={c.id} style={{marginBottom:6}}>
+              <div className="spread" style={{marginBottom:2}}>
+                <span className="sm">{c.label}</span>
+                <span className="mono tiny muted">{round(c.score,1)}/{c.weight}</span>
+              </div>
+              <div className="comp-bar"><div className="comp-fill" style={{width:(c.attain*100)+"%",background:scoreColor(c.attain)}}/></div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {pending&&<div className="tiny" style={{marginTop:10,color:"var(--warn)"}}>※ 未登録メニューがあります。Coworkが栄養素を補完すると、スコアに反映されます。</div>}
+    </div>
+  );
+}
+
+// ═══════════════ PFCバランス ═══════════════
+function PFCBar({totals}){
+  const p=pctE(totals,"protein_g"),f=pctE(totals,"fat_g"),c=pctE(totals,"carb_g");
+  const sum=p+f+c||1;
+  const seg=[{l:"P",v:p,col:"#5b9dff",range:"13–20"},{l:"F",v:f,col:"#e0a93b",range:"20–30"},{l:"C",v:c,col:"#46c98b",range:"50–65"}];
+  return (
+    <div className="card tight">
+      <div className="spread" style={{marginBottom:8}}><div className="sect-h" style={{margin:0}}>PFCバランス（%エネルギー）</div></div>
+      <div className="pfc">{seg.map(s=><div key={s.l} style={{width:(s.v/sum*100)+"%",background:s.col}}/>)}</div>
+      <div className="row gap12" style={{marginTop:8,flexWrap:"wrap"}}>
+        {seg.map(s=>(
+          <div key={s.l} className="row gap6">
+            <span style={{width:9,height:9,borderRadius:2,background:s.col,display:"inline-block"}}/>
+            <span className="sm b">{s.l}</span>
+            <span className="mono sm">{round(s.v,0)}%</span>
+            <span className="tiny faint">目標{s.range}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════ 栄養素テーブル ═══════════════
+function targetText(key,targets){
+  const t=targets[key]||{};
+  if(t.min_pct_e!==undefined&&t.max_pct_e!==undefined)return `${t.min_pct_e}–${t.max_pct_e}%E`;
+  if(t.max_pct_e!==undefined)return `≤${t.max_pct_e}%E`;
+  if(t.max!==undefined&&t.target===undefined&&t.min===undefined)return `≤${t.ideal_max||t.max}`;
+  if(t.target!==undefined)return `${t.target}`+(t.max?`（上限${t.max}）`:"");
+  if(t.min!==undefined)return `≥${t.min}`;
+  return "—";
+}
+function NutrientTable({totals,targets}){
+  const e=totals.energy_kcal||0;
+  const groups=[];const seen={};
+  NUTRI.forEach(n=>{if(!seen[n.g]){seen[n.g]=[];groups.push([n.g,seen[n.g]]);}seen[n.g].push(n);});
+  return (
+    <div className="card">
+      <div className="sect-h">栄養素一覧（当日合計 / 目標 / 充足）</div>
+      <table className="ntab">
+        <thead><tr><th>栄養素</th><th className="right">摂取</th><th className="right">目標</th><th style={{width:"26%"}}>充足</th></tr></thead>
+        <tbody>
+          {groups.map(([gname,items])=>(
+            <React.Fragment key={gname}>
+              <tr className="grp-h"><td colSpan="4">{gname}</td></tr>
+              {items.map(n=>{
+                const v=totals[n.k]||0;const st=nutrientStatus(n.k,v,targets,e);
+                const col=statusColor(st.status);
+                const t=targets[n.k]||{};
+                let fill=0,barcol=col;
+                if(st.ratio!==undefined)fill=clamp(st.ratio,0,1.3)*100/1.3;
+                else if(st.pct!==undefined){const hi=(t.max_pct_e||30);fill=clamp(st.pct/hi,0,1.3)*100/1.3;}
+                const isZero=v===0;
+                return (
+                  <tr key={n.k}>
+                    <td>{n.label}<span className="tiny faint" style={{marginLeft:5}}>{n.unit}</span></td>
+                    <td className="right mono" style={{color:isZero?"var(--text-faint)":col,fontWeight:600}}>{fmtNum(v,n.dec)}</td>
+                    <td className="right mono tiny faint">{targetText(n.k,targets)}</td>
+                    <td>
+                      {st.status==="na"?<span className="tiny faint">—</span>:
+                      <div className="nbar"><div style={{width:fill+"%",background:barcol}}/></div>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+      <div className="tiny faint" style={{marginTop:8}}>基準: 日本人の食事摂取基準2025（18–29歳男性）。緑=適正 / 黄=不足ぎみ・要注意 / 赤=過剰。微量栄養素は推定値を含みます。</div>
+    </div>
+  );
+}
+
+// ═══════════════ 記録: 食事行・食区分ブロック ═══════════════
+function MealRow({master,meal,onTap}){
+  const {n,pending}=mealNutrients(master,meal);
+  const f=meal.food_id?foodById(master,meal.food_id):null;
+  const name=f?f.name_ja:(meal.raw_name||"（名称未入力）");
+  const store=f?f.store:meal.raw_store;
+  return (
+    <div className="meal" onClick={onTap}>
+      <div style={{minWidth:0}}>
+        <div className="meal-name">
+          <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{name}</span>
+          {meal.qty&&meal.qty!==1?<span className="qty">×{meal.qty}</span>:null}
+          {pending&&<span className="badge pending">Cowork補完予定</span>}
+        </div>
+        {store&&<div className="meal-sub">{store}</div>}
+      </div>
+      <div className="meal-kcal">{pending?"—":Math.round(n.energy_kcal)+" kcal"}</div>
+    </div>
+  );
+}
+function SlotBlock({slot,master,meals,totals,onAdd,onTapMeal}){
+  return (
+    <div className="slot">
+      <div className="slot-h">
+        <div className="slot-name"><span>{slot.icon}</span>{slot.label}</div>
+        <div className="slot-kcal">{Math.round(totals.energy_kcal||0)} kcal</div>
+      </div>
+      {meals.map(m=><MealRow key={m.log_id} master={master} meal={m} onTap={()=>onTapMeal(m)}/>)}
+      <button className="add-btn" onClick={onAdd}>＋ {slot.label}に追加</button>
+    </div>
+  );
+}
+
+// ═══════════════ 追加シート ═══════════════
+function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
+  const [tab,setTab]=useState("search");
+  const [q,setQ]=useState("");
+  const [rawName,setRawName]=useState("");const [rawStore,setRawStore]=useState("");
+  const master=state.food_master;
+  const usage=useMemo(()=>{
+    const counts={},last={};
+    Object.values(state.logs).forEach(mo=>{if(mo.days)Object.entries(mo.days).forEach(([d,day])=>(day.meals||[]).forEach(m=>{if(m.food_id){counts[m.food_id]=(counts[m.food_id]||0)+1;if(!last[m.food_id]||(m.ts||d)>last[m.food_id])last[m.food_id]=m.ts||d;}}));});
+    return {counts,last};
+  },[state.logs]);
+  const sets=master.filter(f=>f.members&&f.members.length);
+  let list=master;
+  if(tab==="fav")list=master.filter(f=>f.favorite);
+  else if(tab==="recent")list=[...master].filter(f=>usage.last[f.id]).sort((a,b)=>(usage.last[b.id]||"").localeCompare(usage.last[a.id]||"")).slice(0,40);
+  else if(tab==="freq")list=[...master].filter(f=>usage.counts[f.id]).sort((a,b)=>(usage.counts[b.id]||0)-(usage.counts[a.id]||0)).slice(0,40);
+  else if(tab==="sets")list=sets;
+  else if(tab==="search"){const k=q.trim().toLowerCase();list=k?master.filter(f=>(f.name_ja+f.name_kana+(f.store||"")+(f.category||"")).toLowerCase().includes(k)):master.slice(0,60);}
+  const tabs=[["search","検索"],["freq","よく使う"],["recent","最近"],["fav","お気に入り"],["sets","セット"],["raw","未登録"]];
+  function add(f){const n=foodNutrients(master,f);onAdd({food_id:f.id,qty:1});}
+  return (
+    <Modal title={`${SLOTMAP[slot].label}に追加 · ${fmtShort(date)}`} onClose={onClose}>
+      <div className="row gap6 wrap" style={{marginBottom:10}}>
+        {tabs.map(([id,l])=><button key={id} className={"chip"+(tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>)}
+      </div>
+      {tab==="search"&&<input className="in" placeholder="かな・漢字・店名で検索" value={q} onChange={e=>setQ(e.target.value)} autoFocus style={{marginBottom:10}}/>}
+      {tab==="raw"?(
+        <div>
+          <div className="tiny faint" style={{marginBottom:10}}>マスターに無いメニューは、名前と店舗だけ記録します。栄養素はCoworkが後から補完します（needs_lookup）。</div>
+          <label className="lab">メニュー名</label>
+          <input className="in" value={rawName} onChange={e=>setRawName(e.target.value)} placeholder="例：日替わり 鶏の黒酢あん" style={{marginBottom:10}}/>
+          <label className="lab">店舗（任意）</label>
+          <input className="in" value={rawStore} onChange={e=>setRawStore(e.target.value)} placeholder="例：魚半" style={{marginBottom:14}}/>
+          <button className="btn" style={{width:"100%"}} disabled={!rawName.trim()} onClick={()=>{onAddRaw({raw_name:rawName.trim(),raw_store:rawStore.trim()});}}>未登録として記録</button>
+        </div>
+      ):(
+        <div>
+          {list.length===0&&<div className="empty">該当なし</div>}
+          {list.map(f=>{
+            const n=foodNutrients(master,f);
+            return (
+              <div key={f.id} className="list-item" onClick={()=>add(f)}>
+                <div style={{minWidth:0}}>
+                  <div className="med" style={{fontWeight:500,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{f.name_ja}</span>
+                    {f.store&&<span className="badge store">{f.store}</span>}
+                    {f.members&&<span className="badge">セット</span>}
+                  </div>
+                  <div className="tiny faint">{f.serving_desc||f.category} · {Math.round(n.energy_kcal)}kcal</div>
+                </div>
+                <span className="btn sm">追加</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ═══════════════ 食事編集シート ═══════════════
+function MealEditSheet({state,meal,onClose,onSave,onDelete,onDup}){
+  const f=meal.food_id?foodById(state.food_master,meal.food_id):null;
+  const [qty,setQty]=useState(meal.qty||1);
+  const [name,setName]=useState(meal.raw_name||"");const [store,setStore]=useState(meal.raw_store||"");
+  return (
+    <Modal title="食事を編集" onClose={onClose}
+      footer={
+        <div className="row gap8">
+          <button className="btn danger sm" onClick={onDelete}>削除</button>
+          <button className="btn ghost sm" onClick={onDup}>複製</button>
+          <div style={{flex:1}}/>
+          <button className="btn" onClick={()=>onSave({qty,raw_name:name,raw_store:store})}>保存</button>
+        </div>
+      }>
+      <div className="med b" style={{marginBottom:4}}>{f?f.name_ja:(meal.raw_name||"未登録メニュー")}</div>
+      {f&&<div className="tiny faint" style={{marginBottom:12}}>{f.serving_desc}</div>}
+      {f?(
+        <div>
+          <label className="lab">数量（倍率）</label>
+          <QtyStepper val={qty} onChange={setQty}/>
+        </div>
+      ):(
+        <div>
+          <label className="lab">メニュー名</label>
+          <input className="in" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:10}}/>
+          <label className="lab">店舗</label>
+          <input className="in" value={store} onChange={e=>setStore(e.target.value)}/>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ═══════════════ 記録画面 ═══════════════
+function DayScreen({state,date,setDate,update}){
+  const [adding,setAdding]=useState(null);
+  const [editing,setEditing]=useState(null);
+  const {total,per,anyPending}=useMemo(()=>dayTotals(state,date),[state,date]);
+  const meals=dayMeals(state,date);
+  const bySlot={};SLOTS.forEach(s=>bySlot[s.id]=meals.filter(m=>m.slot===s.id));
+  function addMeal(slot,payload){
+    update(ns=>{const day=ensureDay(ns,date);day.meals.push({log_id:gid(),slot,food_id:payload.food_id,qty:payload.qty||1,needs_lookup:false,ts:nowTs()});});
+    setAdding(null);
+  }
+  function addRaw(slot,payload){
+    update(ns=>{const day=ensureDay(ns,date);day.meals.push({log_id:gid(),slot,food_id:null,raw_name:payload.raw_name,raw_store:payload.raw_store,qty:1,needs_lookup:true,lookup_status:"pending",ts:nowTs()});});
+    setAdding(null);
+  }
+  function copyPrev(){
+    const prev=addD(date,-1);const pm=dayMeals(state,prev);
+    if(!pm.length)return;
+    update(ns=>{const day=ensureDay(ns,date);pm.forEach(m=>day.meals.push({...m,log_id:gid(),ts:nowTs()}));});
+  }
+  return (
+    <div>
+      <div className="card tight">
+        <div className="datenav">
+          <button className="nav-btn" onClick={()=>setDate(addD(date,-1))}>‹</button>
+          <div className="d">{fmtDate(date)}<span className="dow">({dow(date)})</span></div>
+          <button className="nav-btn" onClick={()=>setDate(addD(date,1))}>›</button>
+        </div>
+        <div className="row gap8" style={{justifyContent:"center",marginTop:4}}>
+          {date!==today()&&<button className="chip" onClick={()=>setDate(today())}>今日へ</button>}
+          <button className="chip" onClick={copyPrev}>前日をコピー</button>
+          <input type="date" className="chip mono" value={date} onChange={e=>e.target.value&&setDate(e.target.value)} style={{colorScheme:"dark"}}/>
+        </div>
+      </div>
+
+      <ScoreCard totals={total} profile={state.profile} cfg={state.scoring_config} pending={anyPending}/>
+
+      <div className="card">
+        <div className="spread" style={{marginBottom:10}}>
+          <div className="sect-h" style={{margin:0}}>記録</div>
+          <div className="mono sm muted">合計 {Math.round(total.energy_kcal)} kcal</div>
+        </div>
+        {SLOTS.map(s=>(
+          <SlotBlock key={s.id} slot={s} master={state.food_master} meals={bySlot[s.id]} totals={per[s.id]}
+            onAdd={()=>setAdding(s.id)} onTapMeal={(m)=>setEditing(m)}/>
+        ))}
+      </div>
+
+      <PFCBar totals={total}/>
+      <NutrientTable totals={total} targets={state.profile.targets}/>
+
+      {adding&&<AddSheet state={state} date={date} slot={adding} onClose={()=>setAdding(null)}
+        onAdd={(p)=>addMeal(adding,p)} onAddRaw={(p)=>addRaw(adding,p)}/>}
+      {editing&&<MealEditSheet state={state} meal={editing} onClose={()=>setEditing(null)}
+        onSave={(p)=>{update(ns=>{const m=findMeal(ns,date,editing.log_id);if(m){m.qty=p.qty;if(m.food_id===null){m.raw_name=p.raw_name;m.raw_store=p.raw_store;}}});setEditing(null);}}
+        onDelete={()=>{update(ns=>{const day=ensureDay(ns,date);day.meals=day.meals.filter(x=>x.log_id!==editing.log_id);});setEditing(null);}}
+        onDup={()=>{update(ns=>{const day=ensureDay(ns,date);const src=day.meals.find(x=>x.log_id===editing.log_id);if(src)day.meals.push({...src,log_id:gid(),ts:nowTs()});});setEditing(null);}}/>}
+    </div>
+  );
+}
+function ensureDay(st,date){const mo=monthOf(date);if(!st.logs[mo])st.logs[mo]={month:mo,days:{}};if(!st.logs[mo].days[date])st.logs[mo].days[date]={meals:[]};return st.logs[mo].days[date];}
+function findMeal(st,date,logId){const day=ensureDay(st,date);return day.meals.find(m=>m.log_id===logId);}
+
+// ═══════════════ マスター画面 ═══════════════
+function FoodEditSheet({state,food,onClose,onSave,onDelete}){
+  const isNew=!food;
+  const blank={id:"",name_ja:"",name_kana:"",store:"",category:"主菜",serving_desc:"",source:"user",confidence:"med",last_verified:today(),nutrients:emptyNutrients(),ingredients:[],origin:"user",favorite:false};
+  const [f,setF]=useState(food?deepCopy(food):blank);
+  const [mode,setMode]=useState(food&&food.members?"set":"single");
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const setN=(k,v)=>setF(p=>({...p,nutrients:{...p.nutrients,[k]:parseFloat(v)||0}}));
+  function save(){
+    const out=deepCopy(f);
+    if(!out.id)out.id=(out.name_kana||out.name_ja||"food").toString().toLowerCase().replace(/[^a-z0-9ぁ-んァ-ン一-龠]/g,"").slice(0,24)+"_"+gid();
+    out.store=out.store||null;
+    if(mode==="set"){out.members=out.members||[];delete out.nutrients;}
+    else{delete out.members;}
+    onSave(out);
+  }
+  function addMember(id){setF(p=>({...p,members:[...(p.members||[]),{food_id:id,qty:1}]}));}
+  return (
+    <Modal title={isNew?"食品を追加":"食品を編集"} onClose={onClose}
+      footer={<div className="row gap8">{!isNew&&<button className="btn danger sm" onClick={onDelete}>削除</button>}<div style={{flex:1}}/><button className="btn" onClick={save} disabled={!f.name_ja}>保存</button></div>}>
+      <div className="seg" style={{marginBottom:12}}>
+        <button className={mode==="single"?"on":""} onClick={()=>setMode("single")}>単品</button>
+        <button className={mode==="set"?"on":""} onClick={()=>setMode("set")}>セット（Myメニュー）</button>
+      </div>
+      <div className="grid2" style={{marginBottom:10}}>
+        <div><label className="lab">名称</label><input className="in" value={f.name_ja} onChange={e=>set("name_ja",e.target.value)}/></div>
+        <div><label className="lab">よみ（かな）</label><input className="in" value={f.name_kana} onChange={e=>set("name_kana",e.target.value)}/></div>
+        <div><label className="lab">店舗（一般食は空欄）</label><input className="in" value={f.store||""} onChange={e=>set("store",e.target.value)}/></div>
+        <div><label className="lab">カテゴリ</label><select className="in" value={f.category} onChange={e=>set("category",e.target.value)}>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>
+        <div style={{gridColumn:"1 / -1"}}><label className="lab">分量メモ</label><input className="in" value={f.serving_desc} onChange={e=>set("serving_desc",e.target.value)} placeholder="例：1食（ご飯・味噌汁込み）"/></div>
+        <div><label className="lab">出所</label><select className="in" value={f.source} onChange={e=>set("source",e.target.value)}>{["official","label","seibun","asken","estimated","user"].map(c=><option key={c}>{c}</option>)}</select></div>
+        <div><label className="lab">信頼度</label><select className="in" value={f.confidence} onChange={e=>set("confidence",e.target.value)}>{["high","med","low"].map(c=><option key={c}>{c}</option>)}</select></div>
+      </div>
+      {mode==="set"?(
+        <div>
+          <div className="sect-h">構成（食品＋倍率）</div>
+          {(f.members||[]).map((m,i)=>{const mf=foodById(state.food_master,m.food_id);return (
+            <div key={i} className="list-item">
+              <span className="med">{mf?mf.name_ja:m.food_id}</span>
+              <div className="row gap8">
+                <QtyStepper val={m.qty} onChange={(v)=>setF(p=>{const mm=[...p.members];mm[i]={...mm[i],qty:v};return {...p,members:mm};})}/>
+                <button className="x" onClick={()=>setF(p=>({...p,members:p.members.filter((_,j)=>j!==i)}))}>✕</button>
+              </div>
+            </div>
+          );})}
+          <SetPicker master={state.food_master} onPick={addMember}/>
+        </div>
+      ):(
+        <div>
+          <div className="sect-h">栄養素（1食あたり）</div>
+          <div className="grid3">
+            {NUTRI.map(n=>(
+              <div key={n.k}>
+                <label className="lab">{n.label}<span className="faint"> {n.unit}</span></label>
+                <input className="in mono" type="number" step="any" value={f.nutrients[n.k]||0} onChange={e=>setN(n.k,e.target.value)}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+function SetPicker({master,onPick}){
+  const [q,setQ]=useState("");const k=q.trim().toLowerCase();
+  const list=k?master.filter(f=>!f.members&&(f.name_ja+f.name_kana).toLowerCase().includes(k)).slice(0,8):[];
+  return (
+    <div style={{marginTop:8}}>
+      <input className="in" placeholder="＋ 構成食品を検索して追加" value={q} onChange={e=>setQ(e.target.value)}/>
+      {list.map(f=><div key={f.id} className="list-item" onClick={()=>{onPick(f.id);setQ("");}}><span className="med">{f.name_ja}</span><span className="btn sm">追加</span></div>)}
+    </div>
+  );
+}
+function MasterScreen({state,update}){
+  const [q,setQ]=useState("");const [cat,setCat]=useState("");const [editing,setEditing]=useState(null);const [creating,setCreating]=useState(false);
+  const k=q.trim().toLowerCase();
+  let list=state.food_master.filter(f=>{
+    if(cat&&f.category!==cat)return false;
+    if(k&&!(f.name_ja+f.name_kana+(f.store||"")).toLowerCase().includes(k))return false;
+    return true;
+  });
+  list=[...list].sort((a,b)=>(a.store||"~").localeCompare(b.store||"~","ja")||a.name_kana.localeCompare(b.name_kana,"ja"));
+  function saveFood(out){update(ns=>{const i=ns.food_master.findIndex(x=>x.id===out.id);if(i>=0)ns.food_master[i]=out;else ns.food_master.push(out);});setEditing(null);setCreating(false);}
+  function delFood(id){update(ns=>{ns.food_master=ns.food_master.filter(x=>x.id!==id);});setEditing(null);}
+  function toggleFav(id){update(ns=>{const f=ns.food_master.find(x=>x.id===id);if(f)f.favorite=!f.favorite;});}
+  return (
+    <div>
+      <div className="card tight">
+        <input className="in" placeholder="かな・漢字・店名で検索" value={q} onChange={e=>setQ(e.target.value)} style={{marginBottom:10}}/>
+        <div className="row gap6 wrap">
+          <button className={"chip"+(cat===""?" on":"")} onClick={()=>setCat("")}>全て</button>
+          {CATEGORIES.map(c=><button key={c} className={"chip"+(cat===c?" on":"")} onClick={()=>setCat(c)}>{c}</button>)}
+        </div>
+      </div>
+      <div className="spread" style={{margin:"0 4px 10px"}}>
+        <div className="mono sm muted">{list.length} 件</div>
+        <button className="btn sm" onClick={()=>setCreating(true)}>＋ 食品を追加</button>
+      </div>
+      <div className="card">
+        {list.length===0&&<div className="empty">該当する食品がありません</div>}
+        {list.map(f=>{const n=foodNutrients(state.food_master,f);return (
+          <div key={f.id} className="list-item">
+            <div style={{minWidth:0}} onClick={()=>setEditing(f)}>
+              <div className="med" style={{fontWeight:500,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{f.name_ja}</span>
+                {f.store&&<span className="badge store">{f.store}</span>}
+                {f.members&&<span className="badge">セット</span>}
+                <ConfBadge c={f.confidence}/>
+              </div>
+              <div className="tiny faint">{f.category} · {Math.round(n.energy_kcal)}kcal · P{round(n.protein_g,0)}/F{round(n.fat_g,0)}/C{round(n.carb_g,0)} · {f.source}</div>
+            </div>
+            <button className="x" onClick={()=>toggleFav(f.id)} style={{color:f.favorite?"var(--warn)":"var(--text-faint)"}}>{f.favorite?"★":"☆"}</button>
+          </div>
+        );})}
+      </div>
+      {(editing||creating)&&<FoodEditSheet state={state} food={editing} onClose={()=>{setEditing(null);setCreating(false);}} onSave={saveFood} onDelete={()=>delFood(editing.id)}/>}
+    </div>
+  );
+}
+
+// ═══════════════ 推移画面 ═══════════════
+function LineChart({series,target,unit,color,days}){
+  const W=640,H=200,pl=40,pr=12,pt=14,pb=24;
+  const max=Math.max(target||0,...series.map(s=>s.v),1)*1.15;
+  const x=i=>pl+(W-pl-pr)*(series.length<=1?0.5:i/(series.length-1));
+  const y=v=>H-pb-(H-pt-pb)*clamp(v/max,0,1);
+  const path=series.map((s,i)=>`${i===0?"M":"L"}${x(i).toFixed(1)},${y(s.v).toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}} preserveAspectRatio="xMidYMid meet">
+      {[0,0.5,1].map(g=>{const yy=pt+(H-pt-pb)*g;return <line key={g} x1={pl} y1={yy} x2={W-pr} y2={yy} stroke="var(--border)" strokeWidth="1"/>;})}
+      <text x="2" y={pt+4} fill="var(--text-faint)" style={{fontFamily:"var(--mono)",fontSize:9}}>{Math.round(max)}</text>
+      {target?<line x1={pl} y1={y(target)} x2={W-pr} y2={y(target)} stroke="var(--accent)" strokeDasharray="4 4" strokeWidth="1.2"/>:null}
+      {target?<text x={W-pr} y={y(target)-3} textAnchor="end" fill="var(--accent)" style={{fontFamily:"var(--mono)",fontSize:9}}>目標{target}</text>:null}
+      <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round"/>
+      {series.map((s,i)=><circle key={i} cx={x(i)} cy={y(s.v)} r="2.6" fill={color}/>)}
+      {series.map((s,i)=> (i%Math.ceil(series.length/7||1)===0||i===series.length-1)?<text key={"t"+i} x={x(i)} y={H-7} textAnchor="middle" fill="var(--text-faint)" style={{fontFamily:"var(--mono)",fontSize:8.5}}>{s.label}</text>:null)}
+    </svg>
+  );
+}
+function TrendsScreen({state}){
+  const [range,setRange]=useState(14);
+  const [metric,setMetric]=useState("energy_kcal");
+  const metrics=[["energy_kcal","エネルギー","kcal","#5b9dff"],["score","食事スコア","点","#46c98b"],["protein_g","たんぱく質","g","#5b9dff"],["fat_g","脂質","g","#e0a93b"],["carb_g","炭水化物","g","#46c98b"],["salt_g","食塩","g","#f2557a"],["fiber_g","食物繊維","g","#46c98b"],["vegetable_g","野菜量","g","#46c98b"],["calcium_mg","カルシウム","mg","#e879f9"]];
+  const m=metrics.find(x=>x[0]===metric);
+  const series=useMemo(()=>{
+    const arr=[];const end=today();
+    for(let i=range-1;i>=0;i--){const d=addD(end,-i);const {total}=dayTotals(state,d);
+      let v=0;if(metric==="score"){v=scoreDay(total,state.profile,state.scoring_config).mealScore;}else v=total[metric]||0;
+      arr.push({label:fmtShort(d),v:round(v,1),date:d});}
+    return arr;
+  },[state,range,metric]);
+  const t=state.profile.targets[metric]||{};
+  let target=null;
+  if(metric==="score")target=state.scoring_config.meal_max;
+  else if(t.target!==undefined)target=t.target;else if(t.min!==undefined)target=t.min;else if(t.max!==undefined)target=t.ideal_max||t.max;
+  const avg=series.length?round(series.reduce((s,x)=>s+x.v,0)/series.length,1):0;
+  const logged=series.filter(s=>{const dm=dayMeals(state,s.date);return dm.length>0;}).length;
+  return (
+    <div>
+      <div className="card tight">
+        <div className="seg" style={{marginBottom:10}}>
+          {[[7,"7日"],[14,"14日"],[30,"30日"]].map(([d,l])=><button key={d} className={range===d?"on":""} onClick={()=>setRange(d)}>{l}</button>)}
+        </div>
+        <div className="row gap6 wrap">
+          {metrics.map(x=><button key={x[0]} className={"chip"+(metric===x[0]?" on":"")} onClick={()=>setMetric(x[0])}>{x[1]}</button>)}
+        </div>
+      </div>
+      <div className="card">
+        <div className="spread" style={{marginBottom:6}}>
+          <div className="sect-h" style={{margin:0}}>{m[1]}の推移</div>
+          <div className="mono sm muted">平均 {avg} {m[2]}</div>
+        </div>
+        <LineChart series={series} target={target} unit={m[2]} color={m[3]}/>
+        <div className="tiny faint" style={{marginTop:6}}>記録のある日：{logged}/{range}日。点線は目標値。</div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════ 設定画面 ═══════════════
+function SettingsScreen({state,update,reload,cloud}){
+  const [cfg,setCfg]=useState({gasUrl:CFG.gasUrl||"",apiKey:CFG.apiKey||DEFAULT_API_KEY});
+  const [msg,setMsg]=useState("");
+  const [impText,setImpText]=useState("");
+  const [showTargets,setShowTargets]=useState(false);
+  const [showWeights,setShowWeights]=useState(false);
+  function saveConn(){CFG={...CFG,gasUrl:cfg.gasUrl.trim(),apiKey:cfg.apiKey.trim()};saveCfg(CFG);setMsg("接続設定を保存しました。再読み込みします…");setTimeout(reload,600);}
+  function exportJson(){const blob=new Blob([JSON.stringify(state,null,1)],{type:"application/json"});const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download="mealtracker-"+today()+".json";a.click();URL.revokeObjectURL(u);}
+  function importJson(){try{const d=migrate(JSON.parse(impText));update(()=>{},d);setMsg("インポートしました。");setImpText("");}catch(e){setMsg("JSONの読み取りに失敗: "+e.message);}}
+  function reseed(){if(!confirm("一般食シードを再投入します（既存IDは上書き）。よろしいですか？"))return;update(ns=>{const map=Object.fromEntries(ns.food_master.map(f=>[f.id,f]));SEED.food_master_seed.forEach(s=>{map[s.id]=deepCopy(s);});ns.food_master=Object.values(map);});setMsg("一般食シードを再投入しました。");}
+  const p=state.profile;
+  function setProf(k,v){update(ns=>{ns.profile[k]=v;});}
+  function setTarget(key,field,v){update(ns=>{if(!ns.profile.targets[key])ns.profile.targets[key]={};if(v==="")delete ns.profile.targets[key][field];else ns.profile.targets[key][field]=parseFloat(v);});}
+  function setWeight(id,v){update(ns=>{const c=ns.scoring_config.components.find(x=>x.id===id);if(c)c.weight=parseFloat(v)||0;});}
+  const totW=state.scoring_config.components.reduce((s,c)=>s+c.weight,0);
+  return (
+    <div>
+      <div className="card">
+        <div className="sect-h">Drive接続（Google Apps Script）</div>
+        <div className="tiny faint" style={{marginBottom:10}}>同梱の <span className="mono">google-apps-script-meal.js</span> をデプロイし、発行URLと合言葉を設定してください。study-trackerとは別のドキュメント・別の合言葉にしてください。</div>
+        <label className="lab">GAS ウェブアプリ URL</label>
+        <input className="in mono" style={{fontSize:11,marginBottom:10}} value={cfg.gasUrl} onChange={e=>setCfg(c=>({...c,gasUrl:e.target.value}))} placeholder="https://script.google.com/macros/s/…/exec"/>
+        <label className="lab">API キー（合言葉）</label>
+        <input className="in mono" style={{fontSize:12,marginBottom:12}} value={cfg.apiKey} onChange={e=>setCfg(c=>({...c,apiKey:e.target.value}))}/>
+        <div className="row gap8"><button className="btn" onClick={saveConn}>保存して接続</button><span className={"cloud "+cloud.cls} style={{alignSelf:"center"}}>{cloud.txt}</span></div>
+      </div>
+
+      <div className="card">
+        <div className="sect-h">プロフィール</div>
+        <div className="grid2">
+          <div><label className="lab">性別</label><select className="in" value={p.sex} onChange={e=>setProf("sex",e.target.value)}><option value="male">男性</option><option value="female">女性</option></select></div>
+          <div><label className="lab">生まれ年</label><input className="in mono" type="number" value={p.birth_year} onChange={e=>setProf("birth_year",parseInt(e.target.value)||0)}/></div>
+          <div><label className="lab">身長 cm</label><input className="in mono" type="number" value={p.height_cm} onChange={e=>setProf("height_cm",parseFloat(e.target.value)||0)}/></div>
+          <div><label className="lab">身体活動レベル</label><select className="in" value={p.activity_level} onChange={e=>setProf("activity_level",e.target.value)}><option value="low">低い</option><option value="normal">ふつう</option><option value="high">高い</option></select></div>
+        </div>
+        <div className="tiny faint" style={{marginTop:8}}>初期の目標値は食事摂取基準2025（18–29歳男性・低い=2250kcal）です。下で各栄養素を調整できます。</div>
+      </div>
+
+      <div className="card tight">
+        <button className="spread" style={{width:"100%"}} onClick={()=>setShowTargets(v=>!v)}><span className="sect-h" style={{margin:0}}>栄養目標値の編集</span><span className="muted">{showTargets?"▲":"▼"}</span></button>
+        {showTargets&&<div style={{marginTop:10}}>
+          {NUTRI.map(n=>{const t=p.targets[n.k]||{};return (
+            <div key={n.k} className="spread" style={{padding:"6px 0",borderBottom:"1px solid var(--border)",gap:8,flexWrap:"wrap"}}>
+              <span className="sm" style={{minWidth:110}}>{n.label}<span className="tiny faint"> {n.unit}</span></span>
+              <div className="row gap6 wrap">
+                {["target","min","max","min_pct_e","max_pct_e","ideal_max"].map(field=> t[field]!==undefined||["target","min","max"].includes(field)?(
+                  <div key={field} className="row gap6" style={{display: (t[field]!==undefined||(field==="target"&&t.min===undefined&&t.min_pct_e===undefined))?"flex":"none"}}>
+                    <span className="tiny faint">{field}</span>
+                    <input className="in mono" style={{width:64,padding:"4px 6px",fontSize:11}} type="number" step="any" defaultValue={t[field]!==undefined?t[field]:""} onBlur={e=>setTarget(n.k,field,e.target.value)}/>
+                  </div>
+                ):null)}
+              </div>
+            </div>
+          );})}
+        </div>}
+      </div>
+
+      <div className="card tight">
+        <button className="spread" style={{width:"100%"}} onClick={()=>setShowWeights(v=>!v)}><span className="sect-h" style={{margin:0}}>採点の重み（食事スコア {totW}点 ＋運動{state.scoring_config.exercise_max}点）</span><span className="muted">{showWeights?"▲":"▼"}</span></button>
+        {showWeights&&<div style={{marginTop:10}}>
+          {state.scoring_config.components.map(c=>(
+            <div key={c.id} className="spread" style={{padding:"6px 0",borderBottom:"1px solid var(--border)"}}>
+              <span className="sm">{c.label}</span>
+              <input className="in mono" style={{width:70,padding:"5px 8px"}} type="number" step="1" defaultValue={c.weight} onBlur={e=>setWeight(c.id,e.target.value)}/>
+            </div>
+          ))}
+          <div className="tiny faint" style={{marginTop:8}}>合計 {totW}点（運動{state.scoring_config.exercise_max}点はCoworkが加算し100点満点）。あすけんの正確な式は非公開のため、食事摂取基準に基づく調整可能な近似です。</div>
+        </div>}
+      </div>
+
+      <div className="card">
+        <div className="sect-h">データ入出力 / メンテナンス</div>
+        <div className="row gap8 wrap" style={{marginBottom:10}}>
+          <button className="btn ghost sm" onClick={exportJson}>JSONエクスポート</button>
+          <button className="btn ghost sm" onClick={reseed}>一般食シード再投入</button>
+        </div>
+        <label className="lab">JSONインポート（貼り付け）</label>
+        <textarea className="in mono" style={{fontSize:11,minHeight:70}} value={impText} onChange={e=>setImpText(e.target.value)} placeholder='{"schemaVersion":1,...}'/>
+        <button className="btn ghost sm" style={{marginTop:8}} onClick={importJson} disabled={!impText.trim()}>インポート実行</button>
+        {msg&&<div className="tiny" style={{marginTop:10,color:"var(--accent)"}}>{msg}</div>}
+      </div>
+      <div className="tiny faint center" style={{padding:"4px 0 10px"}}>食事管理トラッカー v1 · データは本人のGoogle Driveのみに保存 · ダーク固定</div>
+    </div>
+  );
+}
+
+// ═══════════════ App ═══════════════
+function App(){
+  const [state,setState]=useState(null);
+  const [tab,setTab]=useState("day");
+  const [date,setDate]=useState(today());
+  const [cloud,setCloud]=useState({cls:"sync",txt:"読み込み中"});
+  const loadedRef=useRef(false);
+  const timerRef=useRef(null);
+  const firstSaveSkip=useRef(true);
+
+  const doLoad=useCallback(async()=>{
+    setCloud({cls:"sync",txt:"読み込み中"});
+    const {state:st,from}=await loadAll();
+    firstSaveSkip.current=true;
+    loadedRef.current=true;
+    setState(st);
+    if(from==="cloud")setCloud({cls:"ok",txt:"Drive同期済"});
+    else if(from==="local")setCloud({cls:gasUrl()?"err":"",txt:gasUrl()?"ローカル（同期失敗）":"ローカル保存"});
+    else setCloud({cls:"",txt:gasUrl()?"新規":"未接続 → 設定"});
+  },[]);
+  useEffect(()=>{doLoad();},[doLoad]);
+
+  useEffect(()=>{
+    if(!state||!loadedRef.current)return;
+    saveLocal(state);
+    if(firstSaveSkip.current){firstSaveSkip.current=false;return;}
+    if(!gasUrl())return;
+    if(timerRef.current)clearTimeout(timerRef.current);
+    setCloud({cls:"sync",txt:"保存中…"});
+    timerRef.current=setTimeout(async()=>{
+      const ok=await saveCloud(state);
+      setCloud(ok?{cls:"ok",txt:"Drive保存済"}:{cls:"err",txt:"保存失敗（ローカル可）"});
+    },1200);
+  },[state]);
+
+  const update=useCallback((fn,replace)=>{
+    setState(prev=>{const ns=replace?migrate(replace):deepCopy(prev);if(fn)fn(ns);return ns;});
+  },[]);
+
+  if(!state)return <div className="app" style={{paddingTop:80,textAlign:"center"}}><div className="muted">読み込み中…</div></div>;
+
+  const tabs=[["day","今日","🍽"],["master","マスター","📚"],["trends","推移","📈"],["settings","設定","⚙"]];
+  return (
+    <div>
+      <div className="topbar"><div className="topbar-in">
+        <div className="brand"><span className="dot"/>食事管理トラッカー</div>
+        <span className={"cloud "+cloud.cls}>{cloud.txt}</span>
+      </div></div>
+      <div className="app">
+        {tab==="day"&&<DayScreen state={state} date={date} setDate={setDate} update={update}/>}
+        {tab==="master"&&<MasterScreen state={state} update={update}/>}
+        {tab==="trends"&&<TrendsScreen state={state}/>}
+        {tab==="settings"&&<SettingsScreen state={state} update={update} reload={doLoad} cloud={cloud}/>}
+      </div>
+      <div className="tabbar"><div className="tabbar-in">
+        {tabs.map(([id,l,ic])=><button key={id} className={"tab"+(tab===id?" active":"")} onClick={()=>setTab(id)}><span className="ic">{ic}</span>{l}</button>)}
+      </div></div>
+    </div>
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
