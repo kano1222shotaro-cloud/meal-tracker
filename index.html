@@ -213,8 +213,8 @@ const CFGK="meal-cfg-v1";
 function loadCfg(){try{return JSON.parse(localStorage.getItem(CFGK))||{};}catch{return {};}}
 function saveCfg(c){try{localStorage.setItem(CFGK,JSON.stringify(c));}catch{}}
 let CFG=loadCfg();
-const DEFAULT_GAS_URL="";          // デプロイ後に設定画面で貼り付け
-const DEFAULT_API_KEY="kano_meal_2026_secret";
+const DEFAULT_GAS_URL="https://script.google.com/macros/s/AKfycbwspOfo69rzaGKrk2EHK4bCCg5bGGNFaz-xWXjPR_hoz9bwK43O_xfj4_B5gQr3ijAi/exec"; // 自動接続(デプロイ更新でURL不変)
+const DEFAULT_API_KEY="Ofiadufaioejfaiojowiajfeoai4sfd4s";
 function gasUrl(){return (CFG.gasUrl||DEFAULT_GAS_URL||"").trim();}
 function apiKey(){return (CFG.apiKey||DEFAULT_API_KEY||"").trim();}
 function loadLocal(){try{const r=localStorage.getItem(SK);return r?JSON.parse(r):null;}catch{return null;}}
@@ -239,7 +239,7 @@ async function loadCloud(){
 }
 async function saveCloud(d){
   const url=gasUrl();if(!url)return false;
-  const json=JSON.stringify(d);
+  const rec={...d};delete rec.food_master;const json=JSON.stringify(rec); // 食事記録Docのみ(栄養素Docは閲覧専用)
   try{
     const res=await fetch(url+"?key="+encodeURIComponent(apiKey()),{method:"POST",body:json,headers:{"Content-Type":"text/plain"}});
     if(res.ok)return true;
@@ -272,6 +272,12 @@ function freshState(){
     food_master:deepCopy(SEED.food_master_seed),logs:{}};
 }
 // 読み込んだstateの欠損補完(マイグレーション)
+function recomputeFlag(st){
+  const names=new Set((st.food_master||[]).map(f=>f.name_ja));
+  const missing=(st.menus||[]).filter(m=>m&&!names.has(m));
+  st.missing_nutrient_menus=missing;
+  st.needs_nutrient_flag=missing.length?1:0;
+}
 function migrate(st){
   if(!st||typeof st!=="object")return freshState();
   if(!st.profile)st.profile=defaultProfile();
@@ -279,9 +285,11 @@ function migrate(st){
   if(!st.scoring_config)st.scoring_config=deepCopy(SEED.scoring_config);
   if(!Array.isArray(st.food_master)||!st.food_master.length)st.food_master=deepCopy(SEED.food_master_seed);
   if(!st.logs||typeof st.logs!=="object")st.logs={};
-  st.schemaVersion=1;
-  // 各food.nutrientsの欠損キーを0で補完
+  if(!Array.isArray(st.menus))st.menus=[];
+  if(!Array.isArray(st.favorites))st.favorites=[];
+  st.schemaVersion=2;
   st.food_master.forEach(f=>{if(!f.nutrients)f.nutrients=emptyNutrients();NKEYS.forEach(k=>{if(typeof f.nutrients[k]!=="number")f.nutrients[k]=0;});});
+  recomputeFlag(st);
   return st;
 }
 async function loadAll(){
@@ -493,36 +501,53 @@ function targetText(key,targets){
   if(t.min!==undefined)return `≥${t.min}`;
   return "—";
 }
+function suffCell(key,v,targets,e){
+  const t=targets[key]||{};const meta=NMETA[key];const u=meta.unit;const pk={protein_g:4,fat_g:9,carb_g:4};
+  if(t.min_pct_e!==undefined&&pk[key]){
+    if(e<=0)return {text:"—",color:"var(--text-faint)"};
+    const p=v*pk[key]/e*100;
+    if(p<t.min_pct_e)return {text:"不足 "+round(t.min_pct_e-p,0)+"%E",color:"var(--warn)"};
+    if(t.max_pct_e!==undefined&&p>t.max_pct_e)return {text:"過剰 +"+round(p-t.max_pct_e,0)+"%E",color:"var(--danger)"};
+    return {text:"適正 "+round(p,0)+"%E",color:"var(--ok)"};
+  }
+  if(key==="sat_fat_g"&&t.max_pct_e!==undefined){
+    if(e<=0)return {text:"—",color:"var(--text-faint)"};
+    const lim=e*t.max_pct_e/100/9;const d=lim-v;
+    return d>=0?{text:"余裕 "+round(d,1)+u,color:"var(--ok)"}:{text:"超過 +"+round(-d,1)+u,color:"var(--danger)"};
+  }
+  if(t.max!==undefined&&t.target===undefined&&t.min===undefined){
+    const lim=t.ideal_max||t.max;const d=lim-v;
+    return d>=0?{text:"余裕 "+round(d,meta.dec)+u,color:"var(--ok)"}:{text:"超過 +"+round(-d,meta.dec)+u,color:"var(--danger)"};
+  }
+  const goal=t.target!==undefined?t.target:(t.min!==undefined?t.min:null);
+  if(goal===null)return {text:"—",color:"var(--text-faint)"};
+  const d=goal-v;
+  if(d>0)return {text:"あと "+round(d,meta.dec)+u,color:(v/goal<0.85?"var(--warn)":"var(--text-dim)")};
+  if(t.max!==undefined&&v>t.max)return {text:"過剰 +"+round(v-t.max,meta.dec)+u,color:"var(--danger)"};
+  return {text:"達成 +"+round(v-goal,meta.dec)+u,color:"var(--ok)"};
+}
 function NutrientTable({totals,targets}){
   const e=totals.energy_kcal||0;
   const groups=[];const seen={};
   NUTRI.forEach(n=>{if(!seen[n.g]){seen[n.g]=[];groups.push([n.g,seen[n.g]]);}seen[n.g].push(n);});
   return (
     <div className="card">
-      <div className="sect-h">栄養素一覧（当日合計 / 目標 / 充足）</div>
+      <div className="sect-h">栄養素一覧（摂取 / 目標 / 過不足の絶対量）</div>
       <table className="ntab">
-        <thead><tr><th>栄養素</th><th className="right">摂取</th><th className="right">目標</th><th style={{width:"26%"}}>充足</th></tr></thead>
+        <thead><tr><th>栄養素</th><th className="right">摂取</th><th className="right">目標</th><th className="right" style={{width:"32%"}}>過不足</th></tr></thead>
         <tbody>
           {groups.map(([gname,items])=>(
             <React.Fragment key={gname}>
               <tr className="grp-h"><td colSpan="4">{gname}</td></tr>
               {items.map(n=>{
-                const v=totals[n.k]||0;const st=nutrientStatus(n.k,v,targets,e);
-                const col=statusColor(st.status);
-                const t=targets[n.k]||{};
-                let fill=0,barcol=col;
-                if(st.ratio!==undefined)fill=clamp(st.ratio,0,1.3)*100/1.3;
-                else if(st.pct!==undefined){const hi=(t.max_pct_e||30);fill=clamp(st.pct/hi,0,1.3)*100/1.3;}
+                const v=totals[n.k]||0;const sc=suffCell(n.k,v,targets,e);const st=nutrientStatus(n.k,v,targets,e);
                 const isZero=v===0;
                 return (
                   <tr key={n.k}>
                     <td>{n.label}<span className="tiny faint" style={{marginLeft:5}}>{n.unit}</span></td>
-                    <td className="right mono" style={{color:isZero?"var(--text-faint)":col,fontWeight:600}}>{fmtNum(v,n.dec)}</td>
+                    <td className="right mono" style={{color:isZero?"var(--text-faint)":statusColor(st.status),fontWeight:600}}>{fmtNum(v,n.dec)}</td>
                     <td className="right mono tiny faint">{targetText(n.k,targets)}</td>
-                    <td>
-                      {st.status==="na"?<span className="tiny faint">—</span>:
-                      <div className="nbar"><div style={{width:fill+"%",background:barcol}}/></div>}
-                    </td>
+                    <td className="right mono tiny" style={{color:sc.color,fontWeight:600,whiteSpace:"nowrap"}}>{sc.text}</td>
                   </tr>
                 );
               })}
@@ -530,7 +555,7 @@ function NutrientTable({totals,targets}){
           ))}
         </tbody>
       </table>
-      <div className="tiny faint" style={{marginTop:8}}>基準: 日本人の食事摂取基準2025（18–29歳男性）。緑=適正 / 黄=不足ぎみ・要注意 / 赤=過剰。微量栄養素は推定値を含みます。</div>
+      <div className="tiny faint" style={{marginTop:8}}>基準: 食事摂取基準2025（18–29歳男性・あすけん相当）。「あと○」=目標までの不足量、「余裕○」=上限までの残り、「超過/過剰」=オーバー量。</div>
     </div>
   );
 }
@@ -581,7 +606,7 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
   },[state.logs]);
   const sets=master.filter(f=>f.members&&f.members.length);
   let list=master;
-  if(tab==="fav")list=master.filter(f=>f.favorite);
+  if(tab==="fav")list=master.filter(f=>(state.favorites||[]).includes(f.id));
   else if(tab==="recent")list=[...master].filter(f=>usage.last[f.id]).sort((a,b)=>(usage.last[b.id]||"").localeCompare(usage.last[a.id]||"")).slice(0,40);
   else if(tab==="freq")list=[...master].filter(f=>usage.counts[f.id]).sort((a,b)=>(usage.counts[b.id]||0)-(usage.counts[a.id]||0)).slice(0,40);
   else if(tab==="sets")list=sets;
@@ -674,7 +699,7 @@ function DayScreen({state,date,setDate,update}){
     setAdding(null);
   }
   function addRaw(slot,payload){
-    update(ns=>{const day=ensureDay(ns,date);day.meals.push({log_id:gid(),slot,food_id:null,raw_name:payload.raw_name,raw_store:payload.raw_store,qty:1,needs_lookup:true,lookup_status:"pending",ts:nowTs()});});
+    update(ns=>{const day=ensureDay(ns,date);day.meals.push({log_id:gid(),slot,food_id:null,raw_name:payload.raw_name,raw_store:payload.raw_store,qty:1,needs_lookup:true,lookup_status:"pending",ts:nowTs()});if(payload.raw_name&&!(ns.menus||[]).includes(payload.raw_name)){ns.menus=[...(ns.menus||[]),payload.raw_name];}recomputeFlag(ns);});
     setAdding(null);
   }
   function copyPrev(){
@@ -809,7 +834,8 @@ function MasterScreen({state,update}){
   list=[...list].sort((a,b)=>(a.store||"~").localeCompare(b.store||"~","ja")||a.name_kana.localeCompare(b.name_kana,"ja"));
   function saveFood(out){update(ns=>{const i=ns.food_master.findIndex(x=>x.id===out.id);if(i>=0)ns.food_master[i]=out;else ns.food_master.push(out);});setEditing(null);setCreating(false);}
   function delFood(id){update(ns=>{ns.food_master=ns.food_master.filter(x=>x.id!==id);});setEditing(null);}
-  function toggleFav(id){update(ns=>{const f=ns.food_master.find(x=>x.id===id);if(f)f.favorite=!f.favorite;});}
+  function toggleFav(id){update(ns=>{const s=new Set(ns.favorites||[]);if(s.has(id))s.delete(id);else s.add(id);ns.favorites=[...s];});}
+  function addMenu(){const name=(window.prompt("新しいメニュー名を入力（栄養素はCoworkが後で補完します）")||"").trim();if(!name)return;update(ns=>{if(!(ns.menus||[]).includes(name))ns.menus=[...(ns.menus||[]),name];recomputeFlag(ns);});}
   return (
     <div>
       <div className="card tight">
@@ -820,14 +846,14 @@ function MasterScreen({state,update}){
         </div>
       </div>
       <div className="spread" style={{margin:"0 4px 10px"}}>
-        <div className="mono sm muted">{list.length} 件</div>
-        <button className="btn sm" onClick={()=>setCreating(true)}>＋ 食品を追加</button>
+        <div className="mono sm muted">{list.length} 件 · 閲覧専用</div>
+        <button className="btn sm" onClick={addMenu}>＋ 新規メニュー</button>
       </div>
       <div className="card">
         {list.length===0&&<div className="empty">該当する食品がありません</div>}
         {list.map(f=>{const n=foodNutrients(state.food_master,f);return (
           <div key={f.id} className="list-item">
-            <div style={{minWidth:0}} onClick={()=>setEditing(f)}>
+            <div style={{minWidth:0}}>
               <div className="med" style={{fontWeight:500,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{f.name_ja}</span>
                 {f.store&&<span className="badge store">{f.store}</span>}
@@ -836,7 +862,7 @@ function MasterScreen({state,update}){
               </div>
               <div className="tiny faint">{f.category} · {Math.round(n.energy_kcal)}kcal · P{round(n.protein_g,0)}/F{round(n.fat_g,0)}/C{round(n.carb_g,0)} · {f.source}</div>
             </div>
-            <button className="x" onClick={()=>toggleFav(f.id)} style={{color:f.favorite?"var(--warn)":"var(--text-faint)"}}>{f.favorite?"★":"☆"}</button>
+            <button className="x" onClick={()=>toggleFav(f.id)} style={{color:(state.favorites||[]).includes(f.id)?"var(--warn)":"var(--text-faint)"}}>{(state.favorites||[]).includes(f.id)?"★":"☆"}</button>
           </div>
         );})}
       </div>
