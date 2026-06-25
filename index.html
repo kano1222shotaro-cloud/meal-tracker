@@ -969,7 +969,7 @@ function SettingsScreen({state,update,reload,cloud}){
   const [showWeights,setShowWeights]=useState(false);
   function saveConn(){CFG={...CFG,gasUrl:cfg.gasUrl.trim(),apiKey:cfg.apiKey.trim()};saveCfg(CFG);setMsg("接続設定を保存しました。再読み込みします…");setTimeout(reload,600);}
   function exportJson(){const blob=new Blob([JSON.stringify(state,null,1)],{type:"application/json"});const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download="mealtracker-"+today()+".json";a.click();URL.revokeObjectURL(u);}
-  function importJson(){try{const d=migrate(JSON.parse(impText));update(()=>{},d);setMsg("インポートしました。");setImpText("");}catch(e){setMsg("JSONの読み取りに失敗: "+e.message);}}
+  function importJson(){try{const parsed=JSON.parse(impText);update(ns=>{if(parsed.profile)ns.profile=parsed.profile;if(parsed.scoring_config)ns.scoring_config=parsed.scoring_config;if(parsed.logs)ns.logs=parsed.logs;if(Array.isArray(parsed.menus))ns.menus=parsed.menus;if(Array.isArray(parsed.favorites))ns.favorites=parsed.favorites;if(Array.isArray(parsed.food_master)&&parsed.food_master.length)ns.food_master=parsed.food_master;recomputeFlag(ns);});setMsg("インポートしました。");setImpText("");}catch(e){setMsg("JSONの読み取りに失敗: "+e.message);}}
   function reseed(){if(!confirm("一般食シードを再投入します（既存IDは上書き）。よろしいですか？"))return;update(ns=>{const map=Object.fromEntries(ns.food_master.map(f=>[f.id,f]));SEED.food_master_seed.forEach(s=>{map[s.id]=deepCopy(s);});ns.food_master=Object.values(map);});setMsg("一般食シードを再投入しました。");}
   const p=state.profile;
   function setProf(k,v){update(ns=>{ns.profile[k]=v;});}
