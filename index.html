@@ -92,6 +92,13 @@ input,select,textarea{font-family:inherit}
 .ntab tr:last-child td{border-bottom:none}
 .ntab .nz{color:var(--text-faint)}
 .nbar{height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden;width:100%;min-width:46px}
+.grp-h2{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);background:var(--surface-2);padding:4px 8px;border-radius:6px;margin:9px 0 5px}
+.nrow{padding:7px 2px;border-bottom:1px solid var(--border)}
+.nrow:last-child{border-bottom:none}
+.gbar{position:relative;height:9px;border-radius:5px;background:var(--surface-3);overflow:hidden}
+.gzone{position:absolute;top:0;bottom:0;background:rgba(70,201,139,0.22)}
+.gfill{position:absolute;top:0;bottom:0;left:0;border-radius:5px;min-width:2px}
+.gtick{position:absolute;top:-1px;bottom:-1px;width:2px;background:var(--text-dim);opacity:.85}
 .nbar > div{height:100%;border-radius:3px}
 .val-ok{color:var(--ok)}.val-warn{color:var(--warn)}.val-danger{color:var(--danger)}.val-dim{color:var(--text-dim)}
 .grp-h td{background:var(--surface-2);font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);padding:5px 6px}
@@ -526,36 +533,60 @@ function suffCell(key,v,targets,e){
   if(t.max!==undefined&&v>t.max)return {text:"過剰 +"+round(v-t.max,meta.dec)+u,color:"var(--danger)"};
   return {text:"達成 +"+round(v-goal,meta.dec)+u,color:"var(--ok)"};
 }
+function barGeom(key,value,targets,e){
+  const t=targets[key]||{};const pk={protein_g:4,fat_g:9,carb_g:4};
+  let axisVal,scaleMax,zs,ze,tick;
+  if(t.min_pct_e!==undefined&&pk[key]){
+    axisVal=e>0?value*pk[key]/e*100:0;
+    const lo=t.min_pct_e,hi=t.max_pct_e!==undefined?t.max_pct_e:lo*1.5;
+    scaleMax=hi*1.7;zs=lo/scaleMax;ze=hi/scaleMax;tick=lo/scaleMax;
+  }else if(key==="sat_fat_g"&&t.max_pct_e!==undefined){
+    axisVal=e>0?value*9/e*100:0;const lim=t.max_pct_e;scaleMax=lim*2.4;zs=0;ze=lim/scaleMax;tick=lim/scaleMax;
+  }else if(t.max!==undefined&&t.target===undefined&&t.min===undefined){
+    axisVal=value;const lim=t.ideal_max||t.max;scaleMax=lim*1.8;zs=0;ze=lim/scaleMax;tick=lim/scaleMax;
+  }else{
+    axisVal=value;const goal=t.target!==undefined?t.target:(t.min!==undefined?t.min:0);
+    if(goal<=0)return null;
+    const up=t.max!==undefined?t.max:null;
+    scaleMax=up?Math.max(up*1.05,goal*1.7):goal*1.7;
+    zs=goal/scaleMax;ze=up?up/scaleMax:1;tick=goal/scaleMax;
+  }
+  if(!scaleMax||scaleMax<=0)return null;
+  return {fill:clamp(axisVal/scaleMax,0,1)*100,zs:clamp(zs,0,1)*100,zw:clamp(ze-zs,0,1)*100,tick:clamp(tick,0,1)*100};
+}
 function NutrientTable({totals,targets}){
   const e=totals.energy_kcal||0;
   const groups=[];const seen={};
   NUTRI.forEach(n=>{if(!seen[n.g]){seen[n.g]=[];groups.push([n.g,seen[n.g]]);}seen[n.g].push(n);});
   return (
     <div className="card">
-      <div className="sect-h">栄養素一覧（摂取 / 目標 / 過不足の絶対量）</div>
-      <table className="ntab">
-        <thead><tr><th>栄養素</th><th className="right">摂取</th><th className="right">目標</th><th className="right" style={{width:"32%"}}>過不足</th></tr></thead>
-        <tbody>
-          {groups.map(([gname,items])=>(
-            <React.Fragment key={gname}>
-              <tr className="grp-h"><td colSpan="4">{gname}</td></tr>
-              {items.map(n=>{
-                const v=totals[n.k]||0;const sc=suffCell(n.k,v,targets,e);const st=nutrientStatus(n.k,v,targets,e);
-                const isZero=v===0;
-                return (
-                  <tr key={n.k}>
-                    <td>{n.label}<span className="tiny faint" style={{marginLeft:5}}>{n.unit}</span></td>
-                    <td className="right mono" style={{color:isZero?"var(--text-faint)":statusColor(st.status),fontWeight:600}}>{fmtNum(v,n.dec)}</td>
-                    <td className="right mono tiny faint">{targetText(n.k,targets)}</td>
-                    <td className="right mono tiny" style={{color:sc.color,fontWeight:600,whiteSpace:"nowrap"}}>{sc.text}</td>
-                  </tr>
-                );
-              })}
-            </React.Fragment>
-          ))}
-        </tbody>
-      </table>
-      <div className="tiny faint" style={{marginTop:8}}>基準: 食事摂取基準2025（18–29歳男性・あすけん相当）。「あと○」=目標までの不足量、「余裕○」=上限までの残り、「超過/過剰」=オーバー量。</div>
+      <div className="sect-h">栄養素一覧（摂取量と適正範囲）</div>
+      {groups.map(([gname,items])=>(
+        <div key={gname}>
+          <div className="grp-h2">{gname}</div>
+          {items.map(n=>{
+            const v=totals[n.k]||0;const sc=suffCell(n.k,v,targets,e);const st=nutrientStatus(n.k,v,targets,e);
+            const g=barGeom(n.k,v,targets,e);const col=v===0?"var(--text-faint)":statusColor(st.status);
+            return (
+              <div key={n.k} className="nrow">
+                <div className="spread" style={{marginBottom:4}}>
+                  <span className="sm">{n.label}<span className="tiny faint"> {n.unit}</span></span>
+                  <span className="mono sm" style={{color:col,fontWeight:600}}>{fmtNum(v,n.dec)}<span className="tiny faint"> / {targetText(n.k,targets)}</span></span>
+                </div>
+                {g?(
+                  <div className="gbar">
+                    {g.zw>0&&<div className="gzone" style={{left:g.zs+"%",width:g.zw+"%"}}/>}
+                    <div className="gfill" style={{width:g.fill+"%",background:col}}/>
+                    {g.tick>1&&g.tick<99&&<div className="gtick" style={{left:g.tick+"%"}}/>}
+                  </div>
+                ):<div className="gbar"/>}
+                <div className="tiny" style={{color:sc.color,marginTop:3}}>{sc.text}</div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      <div className="tiny faint" style={{marginTop:10}}>緑帯=適正範囲、バー=摂取量、縦線=目標/上限。基準: 食事摂取基準2025（18–29歳男性・あすけん相当）。</div>
     </div>
   );
 }
@@ -735,7 +766,6 @@ function DayScreen({state,date,setDate,update}){
         ))}
       </div>
 
-      <PFCBar totals={total}/>
       <NutrientTable totals={total} targets={state.profile.targets}/>
 
       {adding&&<AddSheet state={state} date={date} slot={adding} onClose={()=>setAdding(null)}
