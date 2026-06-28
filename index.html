@@ -520,6 +520,14 @@ function targetText(key,targets){
   if(t.min!==undefined)return `≥${t.min}`;
   return "—";
 }
+function valDisp(key,v,targets,e){
+  const t=targets[key]||{};const meta=NMETA[key];const kc={protein_g:4,fat_g:9,carb_g:4,sat_fat_g:9};
+  if((t.min_pct_e!==undefined||t.max_pct_e!==undefined)&&kc[key]){
+    const pe=e>0?v*kc[key]/e*100:0;
+    return {main:round(pe,1)+"%E",sub:" / "+targetText(key,targets)+" ・ "+fmtNum(v,meta.dec)+meta.unit};
+  }
+  return {main:fmtNum(v,meta.dec),sub:" / "+targetText(key,targets)};
+}
 function suffCell(key,v,targets,e){
   const t=targets[key]||{};const meta=NMETA[key];const u=meta.unit;const pk={protein_g:4,fat_g:9,carb_g:4};
   if(key==="energy_kcal"&&t.target){
@@ -595,13 +603,13 @@ function NutrientTable({totals,targets}){
         <div key={gname}>
           <div className="grp-h2">{gname}</div>
           {items.map(n=>{
-            const v=totals[n.k]||0;const sc=suffCell(n.k,v,targets,e);const st=nutrientStatus(n.k,v,targets,e);const sb=statusBadge(st.status);
+            const v=totals[n.k]||0;const sc=suffCell(n.k,v,targets,e);const st=nutrientStatus(n.k,v,targets,e);const sb=statusBadge(st.status);const vd=valDisp(n.k,v,targets,e);
             const g=barGeom(n.k,v,targets,e);const col=v===0?"var(--text-faint)":statusColor(st.status);
             return (
               <div key={n.k} className="nrow">
                 <div className="spread" style={{marginBottom:4}}>
                   <span className="sm">{n.label}<span className="tiny faint"> {n.unit}</span>{sb&&e>0&&<span className={"badge "+sb.cls} style={{marginLeft:6}}>{sb.t}</span>}</span>
-                  <span className="mono sm" style={{color:col,fontWeight:600}}>{fmtNum(v,n.dec)}<span className="tiny faint"> / {targetText(n.k,targets)}</span></span>
+                  <span className="mono sm" style={{color:col,fontWeight:600}}>{vd.main}<span className="tiny faint">{vd.sub}</span></span>
                 </div>
                 {g?(
                   <div className="gbar">
