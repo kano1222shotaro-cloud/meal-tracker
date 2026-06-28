@@ -349,16 +349,14 @@ function nutrientStatus(key,value,targets,energy){
   if(key==="energy_kcal"&&t.target){if(value<=0)return {status:"na"};const lo=t.target*0.9,hi=t.target*1.1;if(value<lo)return {status:"low"};if(value>hi)return {status:"high"};return {status:"ok"};}
   // %E系(PFC)
   const pctKeys={protein_g:4,fat_g:9,carb_g:4};
-  if((t.min_pct_e!==undefined||t.max_pct_e!==undefined)&&pctKeys[key]){
-    if(energy<=0)return {status:"na"};
-    const p=value*pctKeys[key]/energy*100;
-    if(t.min_pct_e!==undefined&&p<t.min_pct_e)return {status:"low",pct:p};
-    if(t.max_pct_e!==undefined&&p>t.max_pct_e)return {status:"high",pct:p};
-    return {status:"ok",pct:p};
+  if(pctKeys[key]&&(t.min_pct_e!==undefined||t.max_pct_e!==undefined)){
+    const gg=pfcGrams(key,targets);
+    if(t.min_pct_e!==undefined&&value<gg.lo)return {status:"low"};
+    if(t.max_pct_e!==undefined&&value>gg.hi)return {status:"high"};
+    return {status:"ok"};
   }
   if(key==="sat_fat_g"&&t.max_pct_e!==undefined){
-    if(energy<=0)return {status:"na"};
-    const p=value*9/energy*100;return p>t.max_pct_e?{status:"high",pct:p}:{status:"ok",pct:p};
+    const gg=pfcGrams(key,targets);return value>gg.hi?{status:"high"}:{status:"ok"};
   }
   // 上限型(食塩・コレステロール)
   if(t.max!==undefined&&t.target===undefined&&t.min===undefined){
@@ -520,11 +518,19 @@ function targetText(key,targets){
   if(t.min!==undefined)return `≥${t.min}`;
   return "—";
 }
+function pfcGrams(key,targets){
+  const t=targets[key]||{};const kc={protein_g:4,fat_g:9,carb_g:4,sat_fat_g:9};
+  if(!kc[key]||(t.min_pct_e===undefined&&t.max_pct_e===undefined))return null;
+  const E=(targets.energy_kcal&&targets.energy_kcal.target)||2200;
+  const g=function(p){return p/100*E/kc[key];};
+  return {lo:t.min_pct_e!==undefined?g(t.min_pct_e):null,hi:t.max_pct_e!==undefined?g(t.max_pct_e):null};
+}
 function valDisp(key,v,targets,e){
   const t=targets[key]||{};const meta=NMETA[key];const kc={protein_g:4,fat_g:9,carb_g:4,sat_fat_g:9};
-  if((t.min_pct_e!==undefined||t.max_pct_e!==undefined)&&kc[key]){
-    const pe=e>0?v*kc[key]/e*100:0;
-    return {main:round(pe,1)+"%E",sub:" / "+targetText(key,targets)+" ・ "+fmtNum(v,meta.dec)+meta.unit};
+  if(kc[key]&&(t.min_pct_e!==undefined||t.max_pct_e!==undefined)){
+    const gg=pfcGrams(key,targets);
+    const denom=gg.lo!==null?round(gg.lo,meta.dec)+"–"+round(gg.hi,meta.dec)+meta.unit:"≤"+round(gg.hi,meta.dec)+meta.unit;
+    return {main:fmtNum(v,meta.dec),sub:" / "+denom};
   }
   return {main:fmtNum(v,meta.dec),sub:" / "+targetText(key,targets)};
 }
@@ -538,17 +544,15 @@ function suffCell(key,v,targets,e){
     const dd=t.target-v;
     return {text:Math.abs(dd)<=t.target*0.03?"適正（ほぼ目標）":"適正（目標まで"+(dd>0?"+":"")+round(dd,0)+u+"）",color:"var(--ok)"};
   }
-  if(t.min_pct_e!==undefined&&pk[key]){
-    if(e<=0)return {text:"—",color:"var(--text-faint)"};
-    const p=v*pk[key]/e*100;const hi=t.max_pct_e!==undefined?t.max_pct_e:t.min_pct_e*1.5;const mid=(t.min_pct_e+hi)/2;
-    if(p<t.min_pct_e)return {text:"不足 "+round(t.min_pct_e-p,1)+"%E",color:"var(--accent)"};
-    if(p>hi)return {text:"過剰 +"+round(p-hi,1)+"%E",color:"var(--danger)"};
-    const dm=mid-p;
-    return {text:Math.abs(dm)<1?"適正（ほぼ中央）":"適正（中央まで"+(dm>0?"+":"")+round(dm,1)+"%E）",color:"var(--ok)"};
+  if(pk[key]&&(t.min_pct_e!==undefined||t.max_pct_e!==undefined)){
+    const gg=pfcGrams(key,targets);const lo=gg.lo,hi=gg.hi;const mid=(lo+hi)/2;
+    if(v<lo)return {text:"不足 あと"+round(lo-v,meta.dec)+u,color:"var(--accent)"};
+    if(v>hi)return {text:"過剰 +"+round(v-hi,meta.dec)+u,color:"var(--danger)"};
+    const dm=mid-v;
+    return {text:Math.abs(dm)<=(hi-lo)*0.08?"適正（ほぼ中央）":"適正（中央まで"+(dm>0?"+":"")+round(dm,meta.dec)+u+"）",color:"var(--ok)"};
   }
   if(key==="sat_fat_g"&&t.max_pct_e!==undefined){
-    if(e<=0)return {text:"—",color:"var(--text-faint)"};
-    const lim=e*t.max_pct_e/100/9;const d=lim-v;
+    const gg=pfcGrams(key,targets);const lim=gg.hi;const d=lim-v;
     return d>=0?{text:"余裕 "+round(d,1)+u,color:"var(--ok)"}:{text:"過剰 +"+round(-d,1)+u,color:"var(--danger)"};
   }
   if(t.max!==undefined&&t.target===undefined&&t.min===undefined){
@@ -571,13 +575,12 @@ function barGeom(key,value,targets,e){
     axisVal=value;const lo=t.target*0.9,hi=t.target*1.1;scaleMax=t.target*1.5;
     zs=lo/scaleMax;ze=hi/scaleMax;tick=t.target/scaleMax;
     ozs=t.target*0.97/scaleMax;oze=t.target*1.03/scaleMax;
-  }else if(t.min_pct_e!==undefined&&pk[key]){
-    axisVal=e>0?value*pk[key]/e*100:0;
-    const lo=t.min_pct_e,hi=t.max_pct_e!==undefined?t.max_pct_e:lo*1.5;const mid=(lo+hi)/2,half=(hi-lo)/2;
-    scaleMax=hi*1.6;zs=lo/scaleMax;ze=hi/scaleMax;tick=mid/scaleMax;
+  }else if(pk[key]&&(t.min_pct_e!==undefined||t.max_pct_e!==undefined)){
+    const gg=pfcGrams(key,targets);const lo=gg.lo,hi=gg.hi;const mid=(lo+hi)/2,half=(hi-lo)/2;
+    axisVal=value;scaleMax=hi*1.6;zs=lo/scaleMax;ze=hi/scaleMax;tick=mid/scaleMax;
     ozs=(mid-half*0.5)/scaleMax;oze=(mid+half*0.5)/scaleMax;
   }else if(key==="sat_fat_g"&&t.max_pct_e!==undefined){
-    axisVal=e>0?value*9/e*100:0;const lim=t.max_pct_e;scaleMax=lim*2.2;zs=0;ze=lim/scaleMax;tick=lim/scaleMax;
+    const gg=pfcGrams(key,targets);const lim=gg.hi;axisVal=value;scaleMax=lim*2.2;zs=0;ze=lim/scaleMax;tick=lim/scaleMax;
   }else if(t.max!==undefined&&t.target===undefined&&t.min===undefined){
     axisVal=value;const lim=t.max;const ideal=t.ideal_max||t.max;scaleMax=lim*1.7;zs=0;ze=lim/scaleMax;tick=ideal/scaleMax;
   }else{
