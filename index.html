@@ -323,9 +323,27 @@ function foodNutrients(master,food){
   }
   return food.nutrients||emptyNutrients();
 }
+// 未登録(needs_lookup)の食事も、Cowork補完で food_master に同名(name_ja)が入れば
+// 自動でそれを参照し栄養を計上、保留(Cowork補完予定)を解除する(名前による後追い解決)。
+function foodByName(master,name,store){
+  if(!name)return null;
+  let cand=null;
+  for(let i=0;i<master.length;i++){
+    const f=master[i];
+    if(f&&f.name_ja===name){
+      if(store&&(f.store||"")===store)return f; // 店名まで一致を最優先
+      if(!cand)cand=f;
+    }
+  }
+  return cand;
+}
+function resolveMealFood(master,meal){
+  if(meal.food_id)return foodById(master,meal.food_id);
+  if(meal.raw_name)return foodByName(master,meal.raw_name,meal.raw_store);
+  return null;
+}
 function mealNutrients(master,meal){
-  if(meal.needs_lookup||!meal.food_id)return {n:emptyNutrients(),pending:true};
-  const f=foodById(master,meal.food_id);
+  const f=resolveMealFood(master,meal);
   if(!f)return {n:emptyNutrients(),pending:true};
   const base=foodNutrients(master,f);const q=meal.qty||1;const o={};
   NKEYS.forEach(k=>o[k]=(base[k]||0)*q);
@@ -636,7 +654,7 @@ function NutrientTable({totals,targets}){
 // ═══════════════ 記録: 食事行・食区分ブロック ═══════════════
 function MealRow({master,meal,onTap}){
   const {n,pending}=mealNutrients(master,meal);
-  const f=meal.food_id?foodById(master,meal.food_id):null;
+  const f=resolveMealFood(master,meal);
   const name=f?f.name_ja:(meal.raw_name||"（名称未入力）");
   const store=f?f.store:meal.raw_store;
   return (
