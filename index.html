@@ -701,7 +701,30 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
   else if(tab==="recent")list=[...master].filter(f=>usage.last[f.id]).sort((a,b)=>(usage.last[b.id]||"").localeCompare(usage.last[a.id]||"")).slice(0,40);
   else if(tab==="freq")list=[...master].filter(f=>usage.counts[f.id]).sort((a,b)=>(usage.counts[b.id]||0)-(usage.counts[a.id]||0)).slice(0,40);
   else if(tab==="sets")list=sets;
-  else if(tab==="search"){const k=q.trim().toLowerCase();list=k?master.filter(f=>(f.name_ja+f.name_kana+(f.store||"")+(f.category||"")).toLowerCase().includes(k)):master.slice(0,60);}
+  else if(tab==="search"){
+    const k=q.trim().toLowerCase();
+    if(!k){
+      // (1) キーワード無し: 使用履歴(最近→頻度)を上位に、残りはマスター順 = あすけん風の「履歴先頭」
+      const used=master.filter(f=>usage.last[f.id]||usage.counts[f.id]).sort((a,b)=>(usage.last[b.id]||"").localeCompare(usage.last[a.id]||"")||((usage.counts[b.id]||0)-(usage.counts[a.id]||0)));
+      const usedIds=new Set(used.map(f=>f.id));
+      list=[...used,...master.filter(f=>!usedIds.has(f.id))].slice(0,60);
+    }else{
+      // (3) スペース区切りの複数語 AND 一致 / (2) 関連度＋使用履歴でランキング
+      const toks=k.split(/\s+/).filter(Boolean);
+      const hay=f=>(f.name_ja+" "+f.name_kana+" "+(f.store||"")+" "+(f.category||"")).toLowerCase();
+      const nm=f=>(f.name_ja+" "+f.name_kana).toLowerCase();
+      list=master.map((f,i)=>{
+        const h=hay(f);
+        if(!toks.every(t=>h.includes(t)))return null;
+        const n=nm(f);
+        let rel=3; // 既定: 店名・カテゴリ等での一致
+        if(toks.some(t=>f.name_ja.toLowerCase()===t||f.name_kana.toLowerCase()===t))rel=0;      // 完全一致
+        else if(toks.some(t=>n.split(/\s+/).some(w=>w.startsWith(t))))rel=1;                     // 前方一致
+        else if(toks.every(t=>n.includes(t)))rel=2;                                              // 名称内一致
+        return {f,i,rel,last:usage.last[f.id]||"",cnt:usage.counts[f.id]||0};
+      }).filter(Boolean).sort((a,b)=>a.rel-b.rel||b.last.localeCompare(a.last)||(b.cnt-a.cnt)||(a.i-b.i)).map(s=>s.f);
+    }
+  }
   const tabs=[["search","検索"],["freq","よく使う"],["recent","最近"],["fav","お気に入り"],["sets","セット"],["raw","未登録"]];
   function add(f){onAdd({food_id:f.id,qty:1});setAdded(c=>c+1);setLast(f.name_ja);}
   return (
