@@ -770,7 +770,7 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
 
 // ═══════════════ 食事編集シート ═══════════════
 function MealEditSheet({state,meal,onClose,onSave,onDelete,onDup}){
-  const f=meal.food_id?foodById(state.food_master,meal.food_id):null;
+  const f=resolveMealFood(state.food_master,meal);const isRaw=!meal.food_id;
   const [qty,setQty]=useState(meal.qty||1);
   const [name,setName]=useState(meal.raw_name||"");const [store,setStore]=useState(meal.raw_store||"");
   return (
@@ -785,20 +785,19 @@ function MealEditSheet({state,meal,onClose,onSave,onDelete,onDup}){
       }>
       <div className="med b" style={{marginBottom:4}}>{f?f.name_ja:(meal.raw_name||"未登録メニュー")}</div>
       {f&&<div className="tiny faint" style={{marginBottom:12}}>{f.serving_desc}</div>}
-      {f?(
-        <div>
-          <label className="lab">数量（倍率・数字を直接入力できます）</label>
-          <QtyStepper val={qty} onChange={setQty}/>
-          <div className="row gap6 wrap" style={{marginTop:8}}>{[0.5,1,1.5,2,3].map(pp=><button key={pp} className={"chip"+(qty===pp?" on":"")} onClick={()=>setQty(pp)}>×{pp}</button>)}</div>
-        </div>
-      ):(
-        <div>
-          <label className="lab">メニュー名</label>
-          <input className="in" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:10}}/>
-          <label className="lab">店舗</label>
-          <input className="in" value={store} onChange={e=>setStore(e.target.value)}/>
-        </div>
-      )}
+      <div>
+        <label className="lab">数量（倍率・数字を直接入力できます）</label>
+        <QtyStepper val={qty} onChange={setQty}/>
+        <div className="row gap6 wrap" style={{marginTop:8}}>{[0.5,1,1.5,2,3].map(pp=><button key={pp} className={"chip"+(qty===pp?" on":"")} onClick={()=>setQty(pp)}>×{pp}</button>)}</div>
+        {isRaw&&(
+          <div style={{marginTop:16}}>
+            <label className="lab">メニュー名</label>
+            <input className="in" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:10}}/>
+            <label className="lab">店舗</label>
+            <input className="in" value={store} onChange={e=>setStore(e.target.value)}/>
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }
