@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>食事管理トラッカー</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -151,6 +151,19 @@ input,select,textarea{font-family:inherit}
 </head>
 <body>
 <div id="root"></div>
+<script>
+// CDN(React/Babel)が読み込めない場合、白画面ではなく原因と対処を表示する
+window.addEventListener("load",function(){
+  if(!(window.React&&window.ReactDOM&&window.Babel)){
+    document.getElementById("root").innerHTML=
+      '<div style="max-width:480px;margin:80px auto;padding:24px;background:#12161f;border:1px solid #262d3d;border-radius:14px;text-align:center">'+
+      '<div style="font-weight:700;font-size:15px;margin-bottom:10px">ライブラリを読み込めませんでした</div>'+
+      '<div style="font-size:12.5px;color:#9aa4ba;line-height:1.8">インターネット接続を確認して、再読み込みしてください。<br>記録データは端末内とGoogle Driveに保存されており、失われていません。</div>'+
+      '<button onclick="location.reload()" style="margin-top:16px;padding:10px 20px;border:none;border-radius:9px;background:#5b9dff;color:#06101f;font-weight:700;font-size:13px;cursor:pointer">再読み込み</button>'+
+      '</div>';
+  }
+});
+</script>
 <script type="text/babel" data-presets="react">
 /* @jsxRuntime classic */
 const {useState,useEffect,useMemo,useRef,useCallback}=React;
@@ -231,16 +244,19 @@ function apiKey(){return (CFG.apiKey||DEFAULT_API_KEY||"").trim();}
 function loadLocal(){try{const r=localStorage.getItem(SK);return r?JSON.parse(r):null;}catch{return null;}}
 function saveLocal(d){try{localStorage.setItem(SK,JSON.stringify(d));}catch{}}
 
+// クラウド応答の検証: error付き応答(記録Doc破損等)は受理しない。
+// 空データを受理するとローカルバックアップまで空で上書きされ全記録消失につながるため。
+function validCloud(d){return !!(d&&typeof d==="object"&&!d.error&&d.food_master!==undefined);}
 async function loadCloud(){
   const url=gasUrl();if(!url)return null;
   try{
     const res=await fetch(url+"?key="+encodeURIComponent(apiKey()));
-    if(res.ok){const d=await res.json();if(d&&d.food_master!==undefined)return d;}
+    if(res.ok){const d=await res.json();if(validCloud(d))return d;if(d&&d.error){console.warn("cloud load rejected:",d.error);return null;}}
   }catch{}
   return new Promise((resolve)=>{
     const cb="_mcb"+Date.now();
     const timer=setTimeout(()=>{delete window[cb];resolve(null);},9000);
-    window[cb]=(data)=>{clearTimeout(timer);delete window[cb];try{if(typeof data==="string")data=JSON.parse(data);resolve(data&&data.food_master!==undefined?data:null);}catch{resolve(null);}};
+    window[cb]=(data)=>{clearTimeout(timer);delete window[cb];try{if(typeof data==="string")data=JSON.parse(data);resolve(validCloud(data)?data:null);}catch{resolve(null);}};
     const s=document.createElement("script");
     s.src=url+"?key="+encodeURIComponent(apiKey())+"&callback="+cb;
     s.onerror=()=>{clearTimeout(timer);delete window[cb];resolve(null);};
@@ -248,28 +264,43 @@ async function loadCloud(){
     s.addEventListener("load",()=>{try{document.head.removeChild(s);}catch{}});
   });
 }
-async function saveCloud(d){
-  const url=gasUrl();if(!url)return false;
+// 返り値: {ok:boolean, error?:string}。opts.force=true でGAS側のshrink_guardを解除。
+async function saveCloud(d,opts){
+  const url=gasUrl();if(!url)return {ok:false,error:"未接続"};
   const rec={...d};delete rec.food_master;const json=JSON.stringify(rec); // 食事記録Docのみ(栄養素Docは閲覧専用)
+  const q=url+"?key="+encodeURIComponent(apiKey())+(opts&&opts.force?"&force=1":"");
   try{
-    const res=await fetch(url+"?key="+encodeURIComponent(apiKey()),{method:"POST",body:json,headers:{"Content-Type":"text/plain"}});
-    if(res.ok)return true;
+    const res=await fetch(q,{method:"POST",body:json,headers:{"Content-Type":"text/plain"}});
+    if(res.ok){
+      let r=null;try{r=await res.json();}catch{}
+      if(r&&r.ok)return {ok:true};
+      if(r&&r.ok===false)return {ok:false,error:r.error||"保存エラー"}; // GASが拒否(shrink_guard等)。iframe再送しない
+    }
   }catch{}
   return new Promise((resolve)=>{
     try{
       const fn="msf"+Date.now();
       const ifr=document.createElement("iframe");ifr.name=fn;ifr.style.cssText="display:none";document.body.appendChild(ifr);
       let done=false;
-      const onMsg=(ev)=>{if(ev.data==="gas_save_ok"){done=true;fin(true);}if(ev.data==="gas_save_error"){done=true;fin(false);}};
+      const onMsg=(ev)=>{if(ev.data==="gas_save_ok"){done=true;fin({ok:true});}if(ev.data==="gas_save_error"){done=true;fin({ok:false,error:"GASが保存を拒否しました"});}};
       window.addEventListener("message",onMsg);
-      const fin=(ok)=>{window.removeEventListener("message",onMsg);setTimeout(()=>{try{document.body.removeChild(frm);}catch{}try{document.body.removeChild(ifr);}catch{}},500);resolve(ok);};
+      const fin=(r)=>{window.removeEventListener("message",onMsg);setTimeout(()=>{try{document.body.removeChild(frm);}catch{}try{document.body.removeChild(ifr);}catch{}},500);resolve(r);};
       const frm=document.createElement("form");frm.method="POST";frm.action=url;frm.target=fn;
       const k=document.createElement("input");k.type="hidden";k.name="key";k.value=apiKey();frm.appendChild(k);
+      if(opts&&opts.force){const fo=document.createElement("input");fo.type="hidden";fo.name="force";fo.value="1";frm.appendChild(fo);}
       const di=document.createElement("input");di.type="hidden";di.name="data";di.value=json;frm.appendChild(di);
       document.body.appendChild(frm);frm.submit();
-      setTimeout(()=>{if(!done)fin(true);},7000);
-    }catch{resolve(false);}
+      setTimeout(()=>{if(!done)fin({ok:false,error:"応答なし（タイムアウト）"});},10000); // 旧: 無応答でも成功扱い→失敗が隠れるため悲観判定に変更
+    }catch{resolve({ok:false,error:"送信エラー"});}
   });
+}
+// タブを閉じる/バックグラウンド移行時の駆け込み送信（ベストエフォート）
+function flushBeacon(st){
+  const url=gasUrl();if(!url||!st)return false;
+  try{
+    const rec={...st};delete rec.food_master;
+    return navigator.sendBeacon(url+"?key="+encodeURIComponent(apiKey()),new Blob([JSON.stringify(rec)],{type:"text/plain"}));
+  }catch{return false;}
 }
 
 // ═══════════════ 初期データ(シードからの構築) ═══════════════
@@ -290,25 +321,48 @@ function recomputeFlag(st){
   st.needs_nutrient_flag=missing.length?1:0;
 }
 function migrate(st){
-  if(!st||typeof st!=="object")return freshState();
+  if(!st||typeof st!=="object")return migrate(freshState());
   if(!st.profile)st.profile=defaultProfile();
-  if(!st.profile.targets)st.profile.targets=deepCopy(SEED.profile_targets);if(st.profile.targets.energy_kcal&&st.profile.targets.energy_kcal.target===2250)st.profile.targets.energy_kcal.target=2200;
+  if(!st.profile.targets)st.profile.targets=deepCopy(SEED.profile_targets);
+  // 2250→2200は一回限りのマイグレーション（毎回走るとユーザーが2250を設定できなくなる）
+  if(!st.mig_e2250){if(st.profile.targets.energy_kcal&&st.profile.targets.energy_kcal.target===2250)st.profile.targets.energy_kcal.target=2200;st.mig_e2250=1;}
   if(!st.scoring_config||st.scoring_config.version!==2)st.scoring_config=deepCopy(SEED.scoring_config);
   if(!Array.isArray(st.food_master)||!st.food_master.length)st.food_master=deepCopy(SEED.food_master_seed);
   if(!st.logs||typeof st.logs!=="object")st.logs={};
   if(!Array.isArray(st.menus))st.menus=[];
   if(!Array.isArray(st.favorites))st.favorites=[];
+  if(!Array.isArray(st.my_foods))st.my_foods=[];
+  if(typeof st.updated_at!=="number")st.updated_at=0;
+  // 自作食品(my_foods)は記録Docに保存され、表示用にfood_masterへ合流させる（クラウドのマスターは閲覧専用のため）
+  st.my_foods=st.my_foods.filter(Boolean);st.my_foods.forEach(f=>{f.origin="user";});
+  st.food_master=st.food_master.filter(f=>f&&f.origin!=="user").concat(st.my_foods);
   st.schemaVersion=2;
-  st.food_master.forEach(f=>{if(!f.nutrients)f.nutrients=emptyNutrients();NKEYS.forEach(k=>{if(typeof f.nutrients[k]!=="number")f.nutrients[k]=0;});});
+  st.food_master.forEach(f=>{
+    if(typeof f.name_ja!=="string")f.name_ja=String(f.name_ja||"");
+    if(typeof f.name_kana!=="string")f.name_kana="";   // kana欠損でsort/検索がクラッシュするのを防ぐ
+    if(!f.nutrients)f.nutrients=emptyNutrients();NKEYS.forEach(k=>{if(typeof f.nutrients[k]!=="number")f.nutrients[k]=0;});});
   recomputeFlag(st);
   return st;
 }
 async function loadAll(){
   const cloud=await loadCloud();
-  if(cloud){const m=migrate(cloud);saveLocal(m);return {state:m,from:"cloud"};}
   const local=loadLocal();
+  if(cloud){
+    const mc=migrate(cloud);
+    if(local){
+      const ml=migrate(local);
+      // ローカルの方が新しい(前回のクラウド保存が未完了のまま終了した等) → 記録系はローカルを採用し、
+      // マスターだけクラウドの最新を使う。その後クラウドへ押し戻す(needsPush)。
+      if((ml.updated_at||0)>(mc.updated_at||0)){
+        ml.food_master=mc.food_master.filter(f=>f&&f.origin!=="user").concat(ml.my_foods||[]);
+        recomputeFlag(ml);
+        return {state:ml,from:"local-newer",needsPush:true};
+      }
+    }
+    saveLocal(mc);return {state:mc,from:"cloud"};
+  }
   if(local)return {state:migrate(local),from:"local"};
-  return {state:freshState(),from:"new"};
+  return {state:migrate(freshState()),from:"new"};
 }
 
 // ═══════════════ 栄養計算 ═══════════════
@@ -361,6 +415,14 @@ function dayTotals(st,date){
 }
 function pctE(n,key){const kcalPer={protein_g:4,fat_g:9,carb_g:4,sat_fat_g:9};const e=n.energy_kcal||0;if(e<=0)return 0;return (n[key]*(kcalPer[key]||0))/e*100;}
 
+// 目標値の解決: min と target が両方ある場合(例: カリウム 目安量target=2500/目標量min=3000)は大きい方を採用。
+// 従来はtargetのみ参照でminが無視され、判定基準がズレていた。
+function goalOf(t){
+  if(t.target!==undefined&&t.min!==undefined)return Math.max(t.target,t.min);
+  if(t.target!==undefined)return t.target;
+  if(t.min!==undefined)return t.min;
+  return null;
+}
 // 充足率の状態判定(過不足)。返り値: {status:'low'|'ok'|'high'|'na', pct, color}
 function nutrientStatus(key,value,targets,energy){
   const t=targets[key]||{};
@@ -384,7 +446,7 @@ function nutrientStatus(key,value,targets,energy){
     return {status:"ok",ratio};
   }
   // 目標/推奨型(下限重視)
-  const goal=t.target!==undefined?t.target:(t.min!==undefined?t.min:null);
+  const goal=goalOf(t);
   if(goal===null)return {status:"na"};
   const ratio=goal>0?value/goal:0;
   let status="ok";
@@ -532,8 +594,8 @@ function targetText(key,targets){
   if(t.min_pct_e!==undefined&&t.max_pct_e!==undefined)return `${t.min_pct_e}–${t.max_pct_e}%E`;
   if(t.max_pct_e!==undefined)return `≤${t.max_pct_e}%E`;
   if(t.max!==undefined&&t.target===undefined&&t.min===undefined)return `≤${t.ideal_max||t.max}`;
-  if(t.target!==undefined)return `${t.target}`+(t.max?`（上限${t.max}）`:"");
-  if(t.min!==undefined)return `≥${t.min}`;
+  const g=goalOf(t);
+  if(g!==null){const pre=t.min!==undefined?"≥":"";return `${pre}${g}`+(t.max?`（上限${t.max}）`:"");}
   return "—";
 }
 function pfcGrams(key,targets){
@@ -579,7 +641,7 @@ function suffCell(key,v,targets,e){
     if(v>ideal)return {text:"上限まで"+round(t.max-v,meta.dec)+u,color:"var(--warn)"};
     return {text:"余裕 "+round(ideal-v,meta.dec)+u,color:"var(--ok)"};
   }
-  const goal=t.target!==undefined?t.target:(t.min!==undefined?t.min:null);
+  const goal=goalOf(t);
   if(goal===null)return {text:"—",color:"var(--text-faint)"};
   if(t.max!==undefined&&v>t.max)return {text:"過剰 +"+round(v-t.max,meta.dec)+u,color:"var(--danger)"};
   const d=goal-v;
@@ -602,7 +664,7 @@ function barGeom(key,value,targets,e){
   }else if(t.max!==undefined&&t.target===undefined&&t.min===undefined){
     axisVal=value;const lim=t.max;const ideal=t.ideal_max||t.max;scaleMax=lim*1.7;zs=0;ze=lim/scaleMax;tick=ideal/scaleMax;
   }else{
-    axisVal=value;const goal=t.target!==undefined?t.target:(t.min!==undefined?t.min:0);
+    axisVal=value;const goal=goalOf(t)||0;
     if(goal<=0)return null;
     const up=t.max!==undefined?t.max:null;
     scaleMax=up?Math.max(up*1.05,goal*1.7):goal*1.7;
@@ -711,14 +773,14 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
     }else{
       // (3) スペース区切りの複数語 AND 一致 / (2) 関連度＋使用履歴でランキング
       const toks=k.split(/\s+/).filter(Boolean);
-      const hay=f=>(f.name_ja+" "+f.name_kana+" "+(f.store||"")+" "+(f.category||"")).toLowerCase();
-      const nm=f=>(f.name_ja+" "+f.name_kana).toLowerCase();
+      const hay=f=>((f.name_ja||"")+" "+(f.name_kana||"")+" "+(f.store||"")+" "+(f.category||"")).toLowerCase();
+      const nm=f=>((f.name_ja||"")+" "+(f.name_kana||"")).toLowerCase();
       list=master.map((f,i)=>{
         const h=hay(f);
         if(!toks.every(t=>h.includes(t)))return null;
         const n=nm(f);
         let rel=3; // 既定: 店名・カテゴリ等での一致
-        if(toks.some(t=>f.name_ja.toLowerCase()===t||f.name_kana.toLowerCase()===t))rel=0;      // 完全一致
+        if(toks.some(t=>(f.name_ja||"").toLowerCase()===t||(f.name_kana||"").toLowerCase()===t))rel=0; // 完全一致
         else if(toks.some(t=>n.split(/\s+/).some(w=>w.startsWith(t))))rel=1;                     // 前方一致
         else if(toks.every(t=>n.includes(t)))rel=2;                                              // 名称内一致
         return {f,i,rel,last:usage.last[f.id]||"",cnt:usage.counts[f.id]||0};
@@ -770,7 +832,7 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
 
 // ═══════════════ 食事編集シート ═══════════════
 function MealEditSheet({state,meal,onClose,onSave,onDelete,onDup}){
-  const f=resolveMealFood(state.food_master,meal);const isRaw=!meal.food_id;
+  const f=meal.food_id?foodById(state.food_master,meal.food_id):null;
   const [qty,setQty]=useState(meal.qty||1);
   const [name,setName]=useState(meal.raw_name||"");const [store,setStore]=useState(meal.raw_store||"");
   return (
@@ -780,24 +842,25 @@ function MealEditSheet({state,meal,onClose,onSave,onDelete,onDup}){
           <button className="btn danger sm" onClick={onDelete}>削除</button>
           <button className="btn ghost sm" onClick={onDup}>複製</button>
           <div style={{flex:1}}/>
-          <button className="btn" onClick={()=>onSave({qty,raw_name:name,raw_store:store})}>保存</button>
+          <button className="btn" disabled={isRaw&&!name.trim()} style={isRaw&&!name.trim()?{opacity:.4}:null} onClick={()=>onSave({qty,raw_name:name.trim(),raw_store:store.trim()})}>保存</button>
         </div>
       }>
       <div className="med b" style={{marginBottom:4}}>{f?f.name_ja:(meal.raw_name||"未登録メニュー")}</div>
       {f&&<div className="tiny faint" style={{marginBottom:12}}>{f.serving_desc}</div>}
-      <div>
-        <label className="lab">数量（倍率・数字を直接入力できます）</label>
-        <QtyStepper val={qty} onChange={setQty}/>
-        <div className="row gap6 wrap" style={{marginTop:8}}>{[0.5,1,1.5,2,3].map(pp=><button key={pp} className={"chip"+(qty===pp?" on":"")} onClick={()=>setQty(pp)}>×{pp}</button>)}</div>
-        {isRaw&&(
-          <div style={{marginTop:16}}>
-            <label className="lab">メニュー名</label>
-            <input className="in" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:10}}/>
-            <label className="lab">店舗</label>
-            <input className="in" value={store} onChange={e=>setStore(e.target.value)}/>
-          </div>
-        )}
-      </div>
+      {f?(
+        <div>
+          <label className="lab">数量（倍率・数字を直接入力できます）</label>
+          <QtyStepper val={qty} onChange={setQty}/>
+          <div className="row gap6 wrap" style={{marginTop:8}}>{[0.5,1,1.5,2,3].map(pp=><button key={pp} className={"chip"+(qty===pp?" on":"")} onClick={()=>setQty(pp)}>×{pp}</button>)}</div>
+        </div>
+      ):(
+        <div>
+          <label className="lab">メニュー名</label>
+          <input className="in" value={name} onChange={e=>setName(e.target.value)} style={{marginBottom:10}}/>
+          <label className="lab">店舗</label>
+          <input className="in" value={store} onChange={e=>setStore(e.target.value)}/>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -853,7 +916,13 @@ function DayScreen({state,date,setDate,update}){
       {adding&&<AddSheet state={state} date={date} slot={adding} onClose={()=>setAdding(null)}
         onAdd={(p)=>addMeal(adding,p)} onAddRaw={(p)=>addRaw(adding,p)}/>}
       {editing&&<MealEditSheet state={state} meal={editing} onClose={()=>setEditing(null)}
-        onSave={(p)=>{update(ns=>{const m=findMeal(ns,date,editing.log_id);if(m){m.qty=p.qty;if(m.food_id===null){m.raw_name=p.raw_name;m.raw_store=p.raw_store;}}});setEditing(null);}}
+        onSave={(p)=>{update(ns=>{const m=findMeal(ns,date,editing.log_id);if(m){m.qty=p.qty;if(m.food_id===null){
+          // 改名時はmenusにも新名称を追加しないとCowork補完の対象にならない(旧バグ: 改名すると永遠に保留のままだった)
+          const nn=(p.raw_name||"").trim();
+          if(nn){m.raw_name=nn;if(!(ns.menus||[]).includes(nn))ns.menus=[...(ns.menus||[]),nn];}
+          m.raw_store=(p.raw_store||"").trim();
+          recomputeFlag(ns);
+        }}});setEditing(null);}}
         onDelete={()=>{update(ns=>{const day=ensureDay(ns,date);day.meals=day.meals.filter(x=>x.log_id!==editing.log_id);});setEditing(null);}}
         onDup={()=>{update(ns=>{const day=ensureDay(ns,date);const src=day.meals.find(x=>x.log_id===editing.log_id);if(src)day.meals.push({...src,log_id:gid(),ts:nowTs()});});setEditing(null);}}/>}
     </div>
@@ -943,9 +1012,22 @@ function MasterScreen({state,update}){
     if(k&&!(f.name_ja+f.name_kana+(f.store||"")).toLowerCase().includes(k))return false;
     return true;
   });
-  list=[...list].sort((a,b)=>(a.store||"~").localeCompare(b.store||"~","ja")||a.name_kana.localeCompare(b.name_kana,"ja"));
-  function saveFood(out){update(ns=>{const i=ns.food_master.findIndex(x=>x.id===out.id);if(i>=0)ns.food_master[i]=out;else ns.food_master.push(out);});setEditing(null);setCreating(false);}
-  function delFood(id){update(ns=>{ns.food_master=ns.food_master.filter(x=>x.id!==id);});setEditing(null);}
+  list=[...list].sort((a,b)=>(a.store||"~").localeCompare(b.store||"~","ja")||(a.name_kana||"").localeCompare(b.name_kana||"","ja"));
+  // 自作食品はmy_foods(記録Docに保存される)とfood_masterの両方に反映する。
+  // クラウドのマスター(栄養素Doc)は閲覧専用のため、自作分だけがここで永続化できる。
+  function saveFood(out){
+    out.origin="user";
+    update(ns=>{
+      ns.my_foods=ns.my_foods||[];
+      const mi=ns.my_foods.findIndex(x=>x.id===out.id);
+      if(mi>=0)ns.my_foods[mi]=out;else ns.my_foods.push(out);
+      const fi=ns.food_master.findIndex(x=>x.id===out.id);
+      if(fi>=0)ns.food_master[fi]=out;else ns.food_master.push(out);
+      recomputeFlag(ns);
+    });
+    setEditing(null);setCreating(false);
+  }
+  function delFood(id){update(ns=>{ns.my_foods=(ns.my_foods||[]).filter(x=>x.id!==id);ns.food_master=ns.food_master.filter(x=>x.id!==id);recomputeFlag(ns);});setEditing(null);}
   function toggleFav(id){update(ns=>{const s=new Set(ns.favorites||[]);if(s.has(id))s.delete(id);else s.add(id);ns.favorites=[...s];});}
   function addMenu(){const name=(window.prompt("新しいメニュー名を入力（栄養素はCoworkが後で補完します）")||"").trim();if(!name)return;update(ns=>{if(!(ns.menus||[]).includes(name))ns.menus=[...(ns.menus||[]),name];recomputeFlag(ns);});}
   return (
@@ -958,9 +1040,13 @@ function MasterScreen({state,update}){
         </div>
       </div>
       <div className="spread" style={{margin:"0 4px 10px"}}>
-        <div className="mono sm muted">{list.length} 件 · 閲覧専用</div>
-        <button className="btn sm" onClick={addMenu}>＋ 新規メニュー</button>
+        <div className="mono sm muted">{list.length} 件</div>
+        <div className="row gap6">
+          <button className="btn ghost sm" onClick={()=>setCreating(true)}>＋ 自作・セット</button>
+          <button className="btn sm" onClick={addMenu}>＋ 新規メニュー</button>
+        </div>
       </div>
+      <div className="tiny faint" style={{margin:"0 4px 10px"}}>一般食・店舗食はクラウド管理（閲覧専用）。自作食品とセット（Myメニュー）は「＋ 自作・セット」から追加でき、✎ で編集できます。</div>
       <div className="card">
         {list.length===0&&<div className="empty">該当する食品がありません</div>}
         {list.map(f=>{const n=foodNutrients(state.food_master,f);return (
@@ -974,7 +1060,10 @@ function MasterScreen({state,update}){
               </div>
               <div className="tiny faint">{f.category} · {Math.round(n.energy_kcal)}kcal · P{round(n.protein_g,0)}/F{round(n.fat_g,0)}/C{round(n.carb_g,0)} · {f.source}</div>
             </div>
-            <button className="x" onClick={()=>toggleFav(f.id)} style={{color:(state.favorites||[]).includes(f.id)?"var(--warn)":"var(--text-faint)"}}>{(state.favorites||[]).includes(f.id)?"★":"☆"}</button>
+            <div className="row gap6">
+              {f.origin==="user"&&<button className="x" onClick={()=>setEditing(f)} title="編集">✎</button>}
+              <button className="x" onClick={()=>toggleFav(f.id)} style={{color:(state.favorites||[]).includes(f.id)?"var(--warn)":"var(--text-faint)"}}>{(state.favorites||[]).includes(f.id)?"★":"☆"}</button>
+            </div>
           </div>
         );})}
       </div>
@@ -1005,7 +1094,7 @@ function trendBand(metric,profile,cfg){
     const ideal=t.ideal_max||t.max;
     return {target:ideal,lo:0,hi:t.max,cap:"目標 ≤"+F(ideal,0)+u+"（上限 "+F(t.max,meta.dec)+"）"};}
   // 下限・目標型(食物繊維・野菜・カルシウム等): 目標=下限、帯=下限〜(上限or開放)
-  const goal=t.target!==undefined?t.target:(t.min!==undefined?t.min:null);
+  const goal=goalOf(t);
   if(goal!==null){const hi=t.max!==undefined?t.max:null;
     return {target:goal,lo:goal,hi:hi,cap:"目標 ≥"+F(goal,0)+u+(hi!==null?"（上限 "+F(hi,0)+"）":"")};}
   return {target:null,lo:null,hi:null,cap:""};
@@ -1084,8 +1173,30 @@ function SettingsScreen({state,update,reload,cloud}){
   const [showTargets,setShowTargets]=useState(false);
   const [showWeights,setShowWeights]=useState(false);
   function exportJson(){const blob=new Blob([JSON.stringify(state,null,1)],{type:"application/json"});const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download="mealtracker-"+today()+".json";a.click();URL.revokeObjectURL(u);}
-  function importJson(){try{const parsed=JSON.parse(impText);update(ns=>{if(parsed.profile)ns.profile=parsed.profile;if(parsed.scoring_config)ns.scoring_config=parsed.scoring_config;if(parsed.logs)ns.logs=parsed.logs;if(Array.isArray(parsed.menus))ns.menus=parsed.menus;if(Array.isArray(parsed.favorites))ns.favorites=parsed.favorites;if(Array.isArray(parsed.food_master)&&parsed.food_master.length)ns.food_master=parsed.food_master;recomputeFlag(ns);});setMsg("インポートしました。");setImpText("");}catch(e){setMsg("JSONの読み取りに失敗: "+e.message);}}
-  function reseed(){if(!confirm("一般食シードを再投入します（既存IDは上書き）。よろしいですか？"))return;update(ns=>{const map=Object.fromEntries(ns.food_master.map(f=>[f.id,f]));SEED.food_master_seed.forEach(s=>{map[s.id]=deepCopy(s);});ns.food_master=Object.values(map);});setMsg("一般食シードを再投入しました。");}
+  function importJson(){try{const parsed=JSON.parse(impText);update(ns=>{
+    if(parsed.profile)ns.profile=parsed.profile;
+    if(parsed.scoring_config)ns.scoring_config=parsed.scoring_config;
+    if(parsed.logs)ns.logs=parsed.logs;
+    if(Array.isArray(parsed.menus))ns.menus=parsed.menus;
+    if(Array.isArray(parsed.favorites))ns.favorites=parsed.favorites;
+    // 食品マスター本体はクラウド管理(保存時に除外)のため、永続化できる自作食品(origin:"user")のみ取り込む
+    const uf=(Array.isArray(parsed.my_foods)?parsed.my_foods:[]).concat(
+      Array.isArray(parsed.food_master)?parsed.food_master.filter(f=>f&&f.origin==="user"):[]);
+    if(uf.length){
+      const map=Object.fromEntries((ns.my_foods||[]).map(f=>[f.id,f]));
+      uf.forEach(f=>{f.origin="user";map[f.id]=f;});
+      ns.my_foods=Object.values(map);
+      ns.food_master=ns.food_master.filter(f=>f.origin!=="user").concat(ns.my_foods);
+    }
+    recomputeFlag(ns);});
+    setMsg("インポートしました。（食品マスター本体はクラウド管理のため、自作食品のみ反映されます）");setImpText("");}catch(e){setMsg("JSONの読み取りに失敗: "+e.message);}}
+  function reseed(){if(!confirm("一般食シードをこの端末の表示に再投入します。マスター本体はクラウド管理のため、次回の読み込みで元に戻ります。よろしいですか？"))return;update(ns=>{const map=Object.fromEntries(ns.food_master.map(f=>[f.id,f]));SEED.food_master_seed.forEach(s=>{map[s.id]=deepCopy(s);});ns.food_master=Object.values(map);});setMsg("一般食シードを再投入しました（この端末の表示のみ・再読み込みでクラウドのマスターに戻ります）。");}
+  async function forcePush(){
+    if(!confirm("この端末の現在のデータで、Driveの記録を強制上書きします。\n（保存が「shrink_guard」等で拒否された場合の復旧用です）\nよろしいですか？"))return;
+    setMsg("強制保存中…");
+    const r=await saveCloud(state,{force:true});
+    setMsg(r.ok?"Driveへ強制保存しました。":"強制保存に失敗: "+(r.error||"不明なエラー"));
+  }
   const p=state.profile;
   function setProf(k,v){update(ns=>{ns.profile[k]=v;});}
   function setTarget(key,field,v){update(ns=>{if(!ns.profile.targets[key])ns.profile.targets[key]={};if(v==="")delete ns.profile.targets[key][field];else ns.profile.targets[key][field]=parseFloat(v);});}
@@ -1101,6 +1212,7 @@ function SettingsScreen({state,update,reload,cloud}){
           <div style={{flex:1}}/>
           <button className="btn ghost sm" onClick={reload}>再読み込み</button>
         </div>
+        {cloud.detail&&<div className="tiny" style={{marginTop:8,color:"var(--danger)"}}>直近のエラー: {cloud.detail}</div>}
       </div>
 
       <div className="card">
@@ -1151,6 +1263,7 @@ function SettingsScreen({state,update,reload,cloud}){
         <div className="row gap8 wrap" style={{marginBottom:10}}>
           <button className="btn ghost sm" onClick={exportJson}>JSONエクスポート</button>
           <button className="btn ghost sm" onClick={reseed}>一般食シード再投入</button>
+          <button className="btn danger sm" onClick={forcePush}>Driveへ強制上書き</button>
         </div>
         <label className="lab">JSONインポート（貼り付け）</label>
         <textarea className="in mono" style={{fontSize:11,minHeight:70}} value={impText} onChange={e=>setImpText(e.target.value)} placeholder='{"schemaVersion":1,...}'/>
@@ -1171,14 +1284,22 @@ function App(){
   const loadedRef=useRef(false);
   const timerRef=useRef(null);
   const firstSaveSkip=useRef(true);
+  const stateRef=useRef(null);
 
   const doLoad=useCallback(async()=>{
     setCloud({cls:"sync",txt:"読み込み中"});
-    const {state:st,from}=await loadAll();
+    const {state:st,from,needsPush}=await loadAll();
     firstSaveSkip.current=true;
     loadedRef.current=true;
     setState(st);
     if(from==="cloud")setCloud({cls:"ok",txt:"Drive同期済"});
+    else if(from==="local-newer"){
+      // ローカルの方が新しい(前回のクラウド保存が未完了) → クラウドへ押し戻す
+      setCloud({cls:"sync",txt:"ローカル→Drive反映中…"});
+      const r=await saveCloud(st);
+      if(r.ok){saveLocal(st);setCloud({cls:"ok",txt:"Drive同期済"});}
+      else setCloud({cls:"err",txt:"保存失敗（ローカル可）",detail:r.error});
+    }
     else if(from==="local")setCloud({cls:gasUrl()?"err":"",txt:gasUrl()?"ローカル（同期失敗）":"ローカル保存"});
     else setCloud({cls:"",txt:gasUrl()?"新規":"未接続 → 設定"});
   },[]);
@@ -1186,19 +1307,35 @@ function App(){
 
   useEffect(()=>{
     if(!state||!loadedRef.current)return;
+    stateRef.current=state;
     saveLocal(state);
     if(firstSaveSkip.current){firstSaveSkip.current=false;return;}
     if(!gasUrl())return;
     if(timerRef.current)clearTimeout(timerRef.current);
     setCloud({cls:"sync",txt:"保存中…"});
     timerRef.current=setTimeout(async()=>{
-      const ok=await saveCloud(state);
-      setCloud(ok?{cls:"ok",txt:"Drive保存済"}:{cls:"err",txt:"保存失敗（ローカル可）"});
+      timerRef.current=null;
+      const r=await saveCloud(state);
+      setCloud(r.ok?{cls:"ok",txt:"Drive保存済"}:{cls:"err",txt:"保存失敗（ローカル可）",detail:r.error});
     },1200);
   },[state]);
 
+  // タブを閉じる/バックグラウンド移行時: 保存待ち(デバウンス中)ならsendBeaconで駆け込み送信
+  useEffect(()=>{
+    const flush=()=>{
+      if(timerRef.current){
+        clearTimeout(timerRef.current);timerRef.current=null;
+        flushBeacon(stateRef.current);
+      }
+    };
+    const onVis=()=>{if(document.visibilityState==="hidden")flush();};
+    window.addEventListener("pagehide",flush);
+    document.addEventListener("visibilitychange",onVis);
+    return ()=>{window.removeEventListener("pagehide",flush);document.removeEventListener("visibilitychange",onVis);};
+  },[]);
+
   const update=useCallback((fn,replace)=>{
-    setState(prev=>{const ns=replace?migrate(replace):deepCopy(prev);if(fn)fn(ns);return ns;});
+    setState(prev=>{const ns=replace?migrate(replace):deepCopy(prev);if(fn)fn(ns);ns.updated_at=Date.now();return ns;});
   },[]);
 
   if(!state)return <div className="app" style={{paddingTop:80,textAlign:"center"}}><div className="muted">読み込み中…</div></div>;
@@ -1226,5 +1363,6 @@ function App(){
 const root=ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App/>);
 </script>
+<!-- v3 -->
 </body>
 </html>
