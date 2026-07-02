@@ -833,6 +833,7 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
 // ═══════════════ 食事編集シート ═══════════════
 function MealEditSheet({state,meal,onClose,onSave,onDelete,onDup}){
   const f=meal.food_id?foodById(state.food_master,meal.food_id):null;
+  const isRaw=!f; // 未登録メニュー(マスター未連携)かどうか
   const [qty,setQty]=useState(meal.qty||1);
   const [name,setName]=useState(meal.raw_name||"");const [store,setStore]=useState(meal.raw_store||"");
   return (
@@ -1360,8 +1361,26 @@ function App(){
   );
 }
 
+// 描画中エラーで白画面のまま操作不能になるのを防ぐ(データは端末内とDriveに保存済み)
+class ErrorBoundary extends React.Component{
+  constructor(p){super(p);this.state={err:null};}
+  static getDerivedStateFromError(err){return {err};}
+  render(){
+    if(this.state.err){
+      return (
+        <div style={{maxWidth:480,margin:"80px auto",padding:24,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,textAlign:"center"}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:10}}>画面の表示中にエラーが発生しました</div>
+          <div className="sm muted" style={{lineHeight:1.8}}>記録データは端末内とGoogle Driveに保存されており、失われていません。</div>
+          <div className="tiny faint mono" style={{marginTop:10,wordBreak:"break-all"}}>{String(this.state.err&&this.state.err.message||this.state.err)}</div>
+          <button className="btn" style={{marginTop:16}} onClick={()=>location.reload()}>再読み込み</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 const root=ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App/>);
+root.render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
 <!-- v3 -->
 </body>
