@@ -862,6 +862,16 @@ function MealEditSheet({state,meal,onClose,onSave,onDelete,onDup}){
           <input className="in" value={store} onChange={e=>setStore(e.target.value)}/>
         </div>
       )}
+      {f&&(()=>{
+        // 栄養素の小さな一覧(数量反映)。普段は目に入らない控えめ表示、気になるときだけ読む用。
+        const base=foodNutrients(state.food_master,f);
+        return (
+          <div style={{marginTop:18,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:10,lineHeight:1.9,color:"var(--text-faint)"}}>
+            <span style={{opacity:.8}}>栄養素{qty!==1?`（×${qty}）`:""}：</span>
+            {NUTRI.map(m=>`${m.label} ${fmtNum((base[m.k]||0)*qty,m.dec)}${m.unit}`).join("　")}
+          </div>
+        );
+      })()}
     </Modal>
   );
 }
