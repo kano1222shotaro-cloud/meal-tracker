@@ -1153,7 +1153,11 @@ function TrendsScreen({state}){
   const bd=trendBand(metric,state.profile,state.scoring_config);
   const target=bd.target;
   const hasBand=bd.lo!=null||bd.hi!=null;
-  const avg=series.length?round(series.reduce((s,x)=>s+x.v,0)/series.length,1):0;
+  // 平均: 今日の昼食・夕食が両方記録済みなら今日を含め、未完なら前日までで算出（未入力の0で平均が下がるのを防ぐ）
+  const _tm=dayMeals(state,today());
+  const _todayDone=_tm.some(m=>m.slot==="lunch")&&_tm.some(m=>m.slot==="dinner");
+  const _avgArr=_todayDone?series:series.filter(s=>s.date!==today());
+  const avg=_avgArr.length?round(_avgArr.reduce((s,x)=>s+x.v,0)/_avgArr.length,1):0;
   const logged=series.filter(s=>{const dm=dayMeals(state,s.date);return dm.length>0;}).length;
   return (
     <div>
