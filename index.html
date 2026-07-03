@@ -1111,29 +1111,77 @@ function trendBand(metric,profile,cfg){
   return {target:null,lo:null,hi:null,cap:""};
 }
 
-function LineChart({series,target,unit,color,band}){
-  const W=640,H=200,pl=40,pr=12,pt=14,pb=24;
-  const dataMax=Math.max(0,...series.map(s=>s.v));
+// きりのいい目盛り幅: 1, 2, 5 ×10^n から raw に最も近いものを選ぶ(d3方式)
+function niceStep(raw){
+  const p=Math.pow(10,Math.floor(Math.log10(raw)));
+  const e=raw/p;
+  return (e>=7.07?10:e>=3.16?5:e>=1.41?2:1)*p;
+}
+// 目盛り幅に必要な小数桁数 (100→0, 0.5→1, 0.25→2)
+function tickDec(step){let d=0;while(d<8&&Math.abs(step*Math.pow(10,d)-Math.round(step*Math.pow(10,d)))>1e-9)d++;return d;}
+// [dmin,dmax]を包む、きりのいい値の目盛り群を返す {lo,hi,ticks,dec}
+function niceScale(dmin,dmax,count){
+  if(!(dmax>dmin))dmax=dmin+Math.max(1,Math.abs(dmin)*0.1);
+  let step=niceStep((dmax-dmin)/count),ticks=[],dec=0;
+  for(let guard=0;guard<4;guard++){
+    dec=tickDec(step);
+    const lo=Math.max(0,Math.floor(dmin/step+1e-6)*step);
+    const hi=Math.ceil(dmax/step-1e-6)*step;
+    ticks=[];for(let v=lo;v<=hi+step*1e-6;v+=step)ticks.push(round(v,dec));
+    if(ticks.length<=8)break;
+    step=niceStep(step*2.001); // 目盛りが多すぎる場合は1段階粗く
+  }
+  return {lo:ticks[0],hi:ticks[ticks.length-1],ticks,dec};
+}
+function LineChart({series,target,unit,color,band,dec}){
+  const W=640,H=210,pl=46,pr=12,pt=14,pb=24;
+  const pts=series.map((s,i)=>Object.assign({},s,{i})).filter(s=>s.v!=null);
+  if(!pts.length)return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}} preserveAspectRatio="xMidYMid meet">
+      <text x={W/2} y={H/2} textAnchor="middle" fill="var(--text-faint)" style={{fontFamily:"var(--sans)",fontSize:12}}>この期間に記録がありません</text>
+    </svg>);
   const blo=band&&band.lo!=null?band.lo:null, bhi=band&&band.hi!=null?band.hi:null;
-  let _base=Math.max(target||0,dataMax,blo!=null?blo:0,1);
-  if(bhi!=null&&bhi<=_base*1.8)_base=Math.max(_base,bhi); // 遠い上限(例:Ca 2500)はスケールに含めない
-  const max=_base*1.15;
+  // 縦軸レンジ: データ+目標値+帯下限に合わせる（遠い上限、例:Ca 2500 はスケールに含めない）
+  let dmin=Math.min(...pts.map(s=>s.v)), dmax=Math.max(...pts.map(s=>s.v));
+  if(target!=null){dmin=Math.min(dmin,target);dmax=Math.max(dmax,target);}
+  if(blo!=null)dmin=Math.min(dmin,blo);
+  if(bhi!=null&&bhi<=Math.max(dmax,1)*1.8)dmax=Math.max(dmax,bhi);
+  let pad=(dmax-dmin)*0.12;if(pad<=0)pad=Math.max(dmax*0.08,1);
+  const sc=niceScale(Math.max(0,dmin-pad),dmax+pad,4);
+  const lo=sc.lo,hi=sc.hi;
   const x=i=>pl+(W-pl-pr)*(series.length<=1?0.5:i/(series.length-1));
-  const y=v=>H-pb-(H-pt-pb)*clamp(v/max,0,1);
-  const path=series.map((s,i)=>`${i===0?"M":"L"}${x(i).toFixed(1)},${y(s.v).toFixed(1)}`).join(" ");
+  const y=v=>H-pb-(H-pt-pb)*clamp((v-lo)/(hi-lo),0,1);
+  // 未記録日(v=null)で線を分割し、欠測ギャップとして描画
+  const segs=[];{let cur=[];series.forEach((s,i)=>{if(s.v==null){if(cur.length)segs.push(cur);cur=[];}else cur.push(Object.assign({},s,{i}));});if(cur.length)segs.push(cur);}
+  const P=a=>a.map((s,j)=>`${j===0?"M":"L"}${x(s.i).toFixed(1)},${y(s.v).toFixed(1)}`).join(" ");
   const _hasB=blo!=null||bhi!=null;
-  const _yT=_hasB?y(bhi!=null?bhi:max):0, _yB=_hasB?y(blo!=null?blo:0):0;
+  const _yT=_hasB?y(bhi!=null?bhi:hi):0, _yB=_hasB?y(blo!=null?blo:lo):0;
+  const showVals=pts.length<=8; // 7日表示では各点に値を表示
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}} preserveAspectRatio="xMidYMid meet">
-      {[0,0.5,1].map(g=>{const yy=pt+(H-pt-pb)*g;return <line key={g} x1={pl} y1={yy} x2={W-pr} y2={yy} stroke="var(--border)" strokeWidth="1"/>;})}
+      {sc.ticks.map(t=>(
+        <g key={t}>
+          <line x1={pl} y1={y(t)} x2={W-pr} y2={y(t)} stroke="var(--border)" strokeWidth="1"/>
+          <text x={pl-6} y={y(t)+3} textAnchor="end" fill="var(--text-faint)" style={{fontFamily:"var(--mono)",fontSize:9}}>{fmtNum(t,sc.dec)}</text>
+        </g>))}
       {_hasB?<rect x={pl} y={_yT} width={W-pl-pr} height={Math.max(0,_yB-_yT)} fill="var(--ok)" fillOpacity="0.15"/>:null}
-      {bhi!=null&&bhi<=max?<line x1={pl} y1={_yT} x2={W-pr} y2={_yT} stroke="var(--ok)" strokeOpacity="0.5" strokeWidth="1"/>:null}
-      {blo!=null&&blo>0&&blo<=max?<line x1={pl} y1={_yB} x2={W-pr} y2={_yB} stroke="var(--ok)" strokeOpacity="0.5" strokeWidth="1"/>:null}
-      <text x="2" y={pt+4} fill="var(--text-faint)" style={{fontFamily:"var(--mono)",fontSize:9}}>{Math.round(max)}</text>
+      {bhi!=null&&bhi<=hi?<line x1={pl} y1={_yT} x2={W-pr} y2={_yT} stroke="var(--ok)" strokeOpacity="0.5" strokeWidth="1"/>:null}
+      {blo!=null&&blo>=lo&&blo<=hi?<line x1={pl} y1={_yB} x2={W-pr} y2={_yB} stroke="var(--ok)" strokeOpacity="0.5" strokeWidth="1"/>:null}
       {target!=null?<line x1={pl} y1={y(target)} x2={W-pr} y2={y(target)} stroke="var(--accent)" strokeDasharray="4 4" strokeWidth="1.2"/>:null}
       {target!=null?<text x={W-pr} y={y(target)-3} textAnchor="end" fill="var(--accent)" style={{fontFamily:"var(--mono)",fontSize:9}}>目標{round(target,0)}</text>:null}
-      <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round"/>
-      {series.map((s,i)=><circle key={i} cx={x(i)} cy={y(s.v)} r="2.6" fill={color}/>)}
+      {segs.map((seg,k)=>{
+        const last=seg[seg.length-1];
+        const solid=last.prov?seg.slice(0,-1):seg;
+        return (
+          <g key={k}>
+            {solid.length>=2?<path d={P(solid)} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round"/>:null}
+            {last.prov&&seg.length>=2?<path d={P(seg.slice(-2))} fill="none" stroke={color} strokeWidth="2" strokeDasharray="3 4" strokeOpacity="0.7"/>:null}
+          </g>);
+      })}
+      {pts.map(s=>s.prov
+        ?<circle key={s.i} cx={x(s.i)} cy={y(s.v)} r="3" fill="var(--surface)" stroke={color} strokeWidth="1.6"/>
+        :<circle key={s.i} cx={x(s.i)} cy={y(s.v)} r="2.6" fill={color}/>)}
+      {showVals?pts.map(s=><text key={"v"+s.i} x={x(s.i)} y={Math.max(y(s.v)-8,pt+8)} textAnchor="middle" fill={color} fillOpacity="0.95" style={{fontFamily:"var(--mono)",fontSize:9}}>{fmtNum(s.v,dec||0)}</text>):null}
       {series.map((s,i)=> (i%Math.ceil(series.length/7||1)===0||i===series.length-1)?<text key={"t"+i} x={x(i)} y={H-7} textAnchor="middle" fill="var(--text-faint)" style={{fontFamily:"var(--mono)",fontSize:8.5}}>{s.label}</text>:null)}
     </svg>
   );
@@ -1145,20 +1193,25 @@ function TrendsScreen({state}){
   const m=metrics.find(x=>x[0]===metric);
   const series=useMemo(()=>{
     const arr=[];const end=today();
-    for(let i=range-1;i>=0;i--){const d=addD(end,-i);const {total}=dayTotals(state,d);
+    const tm=dayMeals(state,end);
+    const todayDone=tm.some(m=>m.slot==="lunch")&&tm.some(m=>m.slot==="dinner");
+    for(let i=range-1;i>=0;i--){const d=addD(end,-i);
+      // 未記録日は0でなく欠測(v:null)として扱い、グラフの線を途切れさせる
+      if(dayMeals(state,d).length===0){arr.push({label:fmtShort(d),v:null,date:d});continue;}
+      const {total}=dayTotals(state,d);
       let v=0;if(metric==="score"){v=scoreDay(total,state.profile,state.scoring_config).mealScore;}else v=total[metric]||0;
-      arr.push({label:fmtShort(d),v:round(v,1),date:d});}
+      // 今日の昼食・夕食が揃っていなければ暫定(prov)として白抜き点+破線で描画
+      arr.push({label:fmtShort(d),v:round(v,1),date:d,prov:d===end&&!todayDone});}
     return arr;
   },[state,range,metric]);
   const bd=trendBand(metric,state.profile,state.scoring_config);
   const target=bd.target;
   const hasBand=bd.lo!=null||bd.hi!=null;
-  // 平均: 今日の昼食・夕食が両方記録済みなら今日を含め、未完なら前日までで算出（未入力の0で平均が下がるのを防ぐ）
-  const _tm=dayMeals(state,today());
-  const _todayDone=_tm.some(m=>m.slot==="lunch")&&_tm.some(m=>m.slot==="dinner");
-  const _avgArr=_todayDone?series:series.filter(s=>s.date!==today());
+  // 平均: 欠測日と暫定(今日・未確定)を除いて算出（未入力の0で平均が下がるのを防ぐ）
+  const _avgArr=series.filter(s=>s.v!=null&&!s.prov);
   const avg=_avgArr.length?round(_avgArr.reduce((s,x)=>s+x.v,0)/_avgArr.length,1):0;
-  const logged=series.filter(s=>{const dm=dayMeals(state,s.date);return dm.length>0;}).length;
+  const logged=series.filter(s=>s.v!=null).length;
+  const _hasProv=series.some(s=>s.prov);
   return (
     <div>
       <div className="card tight">
@@ -1174,8 +1227,8 @@ function TrendsScreen({state}){
           <div className="sect-h" style={{margin:0}}>{m[1]}の推移</div>
           <div className="mono sm muted">平均 {avg} {m[2]}</div>
         </div>
-        <LineChart series={series} target={target} unit={m[2]} color={m[3]} band={bd}/>
-        <div className="tiny faint" style={{marginTop:6}}>記録のある日：{logged}/{range}日。点線＝目標値{hasBand?"、緑帯＝適正範囲":""}。{bd.cap}</div>
+        <LineChart series={series} target={target} unit={m[2]} color={m[3]} band={bd} dec={metric==="score"?0:((NMETA[metric]||{}).dec||0)}/>
+        <div className="tiny faint" style={{marginTop:6}}>記録のある日：{logged}/{range}日（未記録日は欠測として非表示）。点線＝目標値{hasBand?"、緑帯＝適正範囲":""}。{_hasProv?"白抜き点＝今日（暫定）。":""}{bd.cap}</div>
       </div>
     </div>
   );
