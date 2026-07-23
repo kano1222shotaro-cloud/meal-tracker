@@ -344,25 +344,33 @@ function migrate(st){
   recomputeFlag(st);
   return st;
 }
-async function loadAll(){
-  const cloud=await loadCloud();
-  const local=loadLocal();
-  if(cloud){
-    const mc=migrate(cloud);
-    if(local){
-      const ml=migrate(local);
-      // ローカルの方が新しい(前回のクラウド保存が未完了のまま終了した等) → 記録系はローカルを採用し、
-      // マスターだけクラウドの最新を使う。その後クラウドへ押し戻す(needsPush)。
-      if((ml.updated_at||0)>(mc.updated_at||0)){
-        ml.food_master=mc.food_master.filter(f=>f&&f.origin!=="user").concat(ml.my_foods||[]);
-        recomputeFlag(ml);
-        return {state:ml,from:"local-newer",needsPush:true};
-      }
-    }
-    saveLocal(mc);return {state:mc,from:"cloud"};
+// ═══ 非ブロッキング読込の統合ロジック ═══
+// クラウドGET(Docが大きく数十秒かかることがある)を待たずにローカルで画面を出し、
+// 読込中に行った操作(ops=updateの変更関数)を記録しておき、到着時にここで統合する。
+// 方針(データ齟齬を作らないための決定表):
+//   - クラウドが基準より新しい & 操作なし → クラウドをそのまま採用(従来のcloud採用と同じ)
+//   - クラウドが基準より新しい & 操作あり → 新しいクラウドを土台に操作を順に再適用(他端末の記録もこの間の記録も失わない)→押し戻す
+//   - それ以外(この端末が同じか新しい)   → 記録は現在の画面のまま、マスターだけクラウド最新を採用(従来のlocal-newerと同じ)。
+//     変更があれば押し戻す。
+function mergePlan(mcU,baseU,opsLen,hardReplace){
+  if(!hardReplace&&mcU>baseU)return opsLen>0?{mode:"rebase-ops",push:true}:{mode:"adopt-cloud",push:false};
+  return {mode:"keep-local",push:!!hardReplace||opsLen>0||baseU>mcU};
+}
+function mergeCloudArrival(live,mc,ops,baseU,hardReplace){
+  const plan=mergePlan(mc.updated_at||0,baseU,(ops||[]).length,hardReplace);
+  if(plan.mode==="adopt-cloud")return {state:mc,plan};
+  if(plan.mode==="rebase-ops"){
+    const ns=deepCopy(mc);
+    (ops||[]).forEach(fn=>{try{fn(ns);}catch(err){console.warn("読込中操作の再適用をスキップ:",err);}});
+    recomputeFlag(ns);
+    ns.updated_at=Date.now();
+    return {state:ns,plan};
   }
-  if(local)return {state:migrate(local),from:"local"};
-  return {state:migrate(freshState()),from:"new"};
+  // keep-local: 自作食品(origin:"user")は記録Doc側が正なので残し、マスター本体はクラウド最新を採用
+  const ns=deepCopy(live);
+  ns.food_master=(mc.food_master||[]).filter(f=>f&&f.origin!=="user").concat(ns.my_foods||[]);
+  recomputeFlag(ns);
+  return {state:ns,plan};
 }
 
 // ═══════════════ 栄養計算 ═══════════════
@@ -752,11 +760,14 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
   const [q,setQ]=useState("");
   const [rawName,setRawName]=useState("");const [rawStore,setRawStore]=useState("");const [added,setAdded]=useState(0);const [last,setLast]=useState("");
   const master=state.food_master;
-  const usage=useMemo(()=>{
+  // 使用履歴はシートを開いた時点のスナップショットで固定する。
+  // 以前は state.logs の変化で毎回再計算していたため、選んだ品が即座にリスト先頭へ
+  // 移動して並びが変わり、連続選択しづらかった。閉じて次に開いた時に最新へ反映される。
+  const [usage]=useState(()=>{
     const counts={},last={};
     Object.values(state.logs).forEach(mo=>{if(mo.days)Object.entries(mo.days).forEach(([d,day])=>(day.meals||[]).forEach(m=>{if(m.food_id){counts[m.food_id]=(counts[m.food_id]||0)+1;if(!last[m.food_id]||(m.ts||d)>last[m.food_id])last[m.food_id]=m.ts||d;}}));});
     return {counts,last};
-  },[state.logs]);
+  });
   const sets=master.filter(f=>f.members&&f.members.length);
   let list=master;
   if(tab==="fav")list=master.filter(f=>(state.favorites||[]).includes(f.id));
@@ -1353,23 +1364,48 @@ function App(){
   const timerRef=useRef(null);
   const firstSaveSkip=useRef(true);
   const stateRef=useRef(null);
+  const syncRef=useRef("boot");      // "boot" | "loading"(クラウドGET中) | "ready"
+  const pendingOpsRef=useRef([]);    // クラウド読込中に行った操作(統合時に再適用するため記録)
+  const hardReplaceRef=useRef(false);// 読込中にstate全置換(update第2引数)があった場合は現在の画面を正とする
+  const baseUpdatedRef=useRef(0);    // 読込開始時点のupdated_at(クラウドとの新旧判定の基準)
+  const loadingRef=useRef(false);    // 読込の多重実行防止(再読み込み連打等)
 
   const doLoad=useCallback(async()=>{
-    setCloud({cls:"sync",txt:"読み込み中"});
-    const {state:st,from,needsPush}=await loadAll();
-    firstSaveSkip.current=true;
-    loadedRef.current=true;
-    setState(st);
-    if(from==="cloud")setCloud({cls:"ok",txt:"Drive同期済"});
-    else if(from==="local-newer"){
-      // ローカルの方が新しい(前回のクラウド保存が未完了) → クラウドへ押し戻す
-      setCloud({cls:"sync",txt:"ローカル→Drive反映中…"});
-      const r=await saveCloud(st);
-      if(r.ok){saveLocal(st);setCloud({cls:"ok",txt:"Drive同期済"});}
-      else setCloud({cls:"err",txt:"保存失敗（ローカル可）",detail:r.error});
+    if(loadingRef.current)return;
+    loadingRef.current=true;
+    if(timerRef.current){clearTimeout(timerRef.current);timerRef.current=null;} // 読込中に古い状態を送らない(ローカルには保存済み)
+    // 1) まず手元のデータで即座に画面を出す。クラウド読込を待たずに記録できる。
+    if(!stateRef.current){
+      const base=migrate(loadLocal()||freshState());
+      stateRef.current=base;
+      firstSaveSkip.current=true;
+      loadedRef.current=true;
+      setState(base);
     }
-    else if(from==="local")setCloud({cls:gasUrl()?"err":"",txt:gasUrl()?"ローカル（同期失敗）":"ローカル保存"});
-    else setCloud({cls:"",txt:gasUrl()?"新規":"未接続 → 設定"});
+    pendingOpsRef.current=[];
+    hardReplaceRef.current=false;
+    syncRef.current="loading";
+    baseUpdatedRef.current=(stateRef.current.updated_at)||0;
+    // 直前に確定待ちの変更があっても基準に含めるため、最新のstateから基準を取り直す
+    setState(prev=>{if(prev){stateRef.current=prev;baseUpdatedRef.current=prev.updated_at||0;}return prev;});
+    setCloud({cls:"sync",txt:"Drive読込中・記録できます"});
+    // 2) クラウドは裏で取得し、到着したら読込中の操作を失わないように統合する(mergeCloudArrival)
+    const cloudData=await loadCloud();
+    const ops=pendingOpsRef.current;pendingOpsRef.current=[];
+    const hardReplace=hardReplaceRef.current;hardReplaceRef.current=false;
+    const baseU=baseUpdatedRef.current;
+    syncRef.current="ready";
+    loadingRef.current=false;
+    if(!cloudData){
+      setCloud({cls:gasUrl()?"err":"",txt:gasUrl()?"ローカル（同期失敗）":"ローカル保存"});
+      return;
+    }
+    const mc=migrate(cloudData);
+    const plan=mergePlan(mc.updated_at||0,baseU,ops.length,hardReplace);
+    firstSaveSkip.current=!plan.push; // 押し戻しが必要な時だけ、下の保存effectがDriveへ送る
+    setState(prev=>mergeCloudArrival(prev,mc,ops,baseU,hardReplace).state);
+    if(plan.push)setCloud({cls:"sync",txt:plan.mode==="rebase-ops"?"変更を統合中…":"ローカル→Drive反映中…"});
+    else setCloud({cls:"ok",txt:"Drive同期済"});
   },[]);
   useEffect(()=>{doLoad();},[doLoad]);
 
@@ -1378,6 +1414,7 @@ function App(){
     stateRef.current=state;
     saveLocal(state);
     if(firstSaveSkip.current){firstSaveSkip.current=false;return;}
+    if(syncRef.current==="loading")return; // クラウド読込中はローカル保存のみ。古い土台の上書きを防ぎ、到着時にmergeCloudArrivalで統合してから送る
     if(!gasUrl())return;
     if(timerRef.current)clearTimeout(timerRef.current);
     setCloud({cls:"sync",txt:"保存中…"});
@@ -1403,6 +1440,13 @@ function App(){
   },[]);
 
   const update=useCallback((fn,replace)=>{
+    if(syncRef.current==="loading"){
+      // クラウド読込中の操作は記録しておき、到着時にクラウドが新しければその上に再適用する(mergeCloudArrival)
+      if(replace)hardReplaceRef.current=true;
+      else if(fn)pendingOpsRef.current.push(fn);
+    }else{
+      firstSaveSkip.current=false; // 読込直後の採用と同一バッチになっても、この操作の保存がスキップされないように
+    }
     setState(prev=>{const ns=replace?migrate(replace):deepCopy(prev);if(fn)fn(ns);ns.updated_at=Date.now();return ns;});
   },[]);
 
@@ -1449,6 +1493,6 @@ class ErrorBoundary extends React.Component{
 const root=ReactDOM.createRoot(document.getElementById("root"));
 root.render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
-<!-- v3 -->
+<!-- v4: 非ブロッキング読込(ローカル先行表示・読込中の記録をクラウド到着時に統合) / 追加シートの並び順をシートを開いている間固定 -->
 </body>
 </html>
