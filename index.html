@@ -764,14 +764,20 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
   // 以前は state.logs の変化で毎回再計算していたため、選んだ品が即座にリスト先頭へ
   // 移動して並びが変わり、連続選択しづらかった。閉じて次に開いた時に最新へ反映される。
   const [usage]=useState(()=>{
-    const counts={},last={};
-    Object.values(state.logs).forEach(mo=>{if(mo.days)Object.entries(mo.days).forEach(([d,day])=>(day.meals||[]).forEach(m=>{if(m.food_id){counts[m.food_id]=(counts[m.food_id]||0)+1;if(!last[m.food_id]||(m.ts||d)>last[m.food_id])last[m.food_id]=m.ts||d;}}));});
-    return {counts,last};
+    const counts={},last={},scounts={},slast={}; // scounts/slast = この食事タイミング(slot)限定の履歴
+    Object.values(state.logs).forEach(mo=>{if(mo.days)Object.entries(mo.days).forEach(([d,day])=>(day.meals||[]).forEach(m=>{if(m.food_id){counts[m.food_id]=(counts[m.food_id]||0)+1;if(!last[m.food_id]||(m.ts||d)>last[m.food_id])last[m.food_id]=m.ts||d;if(m.slot===slot){scounts[m.food_id]=(scounts[m.food_id]||0)+1;if(!slast[m.food_id]||(m.ts||d)>slast[m.food_id])slast[m.food_id]=m.ts||d;}}}));});
+    return {counts,last,scounts,slast};
   });
   const sets=master.filter(f=>f.members&&f.members.length);
   let list=master;
   if(tab==="fav")list=master.filter(f=>(state.favorites||[]).includes(f.id));
-  else if(tab==="recent")list=[...master].filter(f=>usage.last[f.id]).sort((a,b)=>(usage.last[b.id]||"").localeCompare(usage.last[a.id]||"")).slice(0,40);
+  else if(tab==="recent"){
+    // タブ名は食事タイミング(朝食/昼食/夕食/間食)。このスロットで選んだ履歴(最近→頻度)を上位に、
+    // 残りはマスター順 = 検索のキーワード無しと同じロジックのスロット限定版。
+    const used=master.filter(f=>usage.slast[f.id]||usage.scounts[f.id]).sort((a,b)=>(usage.slast[b.id]||"").localeCompare(usage.slast[a.id]||"")||((usage.scounts[b.id]||0)-(usage.scounts[a.id]||0)));
+    const usedIds=new Set(used.map(f=>f.id));
+    list=[...used,...master.filter(f=>!usedIds.has(f.id))].slice(0,60);
+  }
   else if(tab==="freq")list=[...master].filter(f=>usage.counts[f.id]).sort((a,b)=>(usage.counts[b.id]||0)-(usage.counts[a.id]||0)).slice(0,40);
   else if(tab==="sets")list=sets;
   else if(tab==="search"){
@@ -798,7 +804,7 @@ function AddSheet({state,date,slot,onClose,onAdd,onAddRaw}){
       }).filter(Boolean).sort((a,b)=>a.rel-b.rel||b.last.localeCompare(a.last)||(b.cnt-a.cnt)||(a.i-b.i)).map(s=>s.f);
     }
   }
-  const tabs=[["search","検索"],["freq","よく使う"],["recent","最近"],["fav","お気に入り"],["sets","セット"],["raw","未登録"]];
+  const tabs=[["search","検索"],["freq","よく使う"],["recent",SLOTMAP[slot].label],["fav","お気に入り"],["sets","セット"],["raw","未登録"]];
   function add(f){onAdd({food_id:f.id,qty:1});setAdded(c=>c+1);setLast(f.name_ja);}
   return (
     <Modal title={`${SLOTMAP[slot].label}に追加 · ${fmtShort(date)}`} onClose={onClose} footer={<button className="btn ghost" style={{width:"100%",padding:"13px",fontSize:14}} onClick={onClose}>{added>0?`閉じる（${added}件 追加しました）`:"閉じる"}</button>}>
