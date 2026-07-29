@@ -333,6 +333,9 @@ function migrate(st){
   if(!Array.isArray(st.favorites))st.favorites=[];
   if(!Array.isArray(st.my_foods))st.my_foods=[];
   if(typeof st.updated_at!=="number")st.updated_at=0;
+  // 削除記録(墓標): 端末間統合で削除済みの食事/自作食品が復活しないよう log_id/id→削除時刻(ms) を保持。90日で自動掃除。
+  if(!st.tombstones||typeof st.tombstones!=="object"||Array.isArray(st.tombstones))st.tombstones={};
+  else{const cut=Date.now()-90*86400000;Object.keys(st.tombstones).forEach(k=>{if(!(st.tombstones[k]>cut))delete st.tombstones[k];});}
   // 自作食品(my_foods)は記録Docに保存され、表示用にfood_masterへ合流させる（クラウドのマスターは閲覧専用のため）
   st.my_foods=st.my_foods.filter(Boolean);st.my_foods.forEach(f=>{f.origin="user";});
   st.food_master=st.food_master.filter(f=>f&&f.origin!=="user").concat(st.my_foods);
@@ -344,33 +347,96 @@ function migrate(st){
   recomputeFlag(st);
   return st;
 }
-// ═══ 非ブロッキング読込の統合ロジック ═══
-// クラウドGET(Docが大きく数十秒かかることがある)を待たずにローカルで画面を出し、
-// 読込中に行った操作(ops=updateの変更関数)を記録しておき、到着時にここで統合する。
-// 方針(データ齟齬を作らないための決定表):
-//   - クラウドが基準より新しい & 操作なし → クラウドをそのまま採用(従来のcloud採用と同じ)
-//   - クラウドが基準より新しい & 操作あり → 新しいクラウドを土台に操作を順に再適用(他端末の記録もこの間の記録も失わない)→押し戻す
-//   - それ以外(この端末が同じか新しい)   → 記録は現在の画面のまま、マスターだけクラウド最新を採用(従来のlocal-newerと同じ)。
-//     変更があれば押し戻す。
-function mergePlan(mcU,baseU,opsLen,hardReplace){
-  if(!hardReplace&&mcU>baseU)return opsLen>0?{mode:"rebase-ops",push:true}:{mode:"adopt-cloud",push:false};
-  return {mode:"keep-local",push:!!hardReplace||opsLen>0||baseU>mcU};
+// ═══ 非ブロッキング読込の統合ロジック(v5: レコード単位の和集合統合) ═══
+// 旧v4は「状態全体の新しい者勝ち(updated_at比較)」だったため、必ずどちらか一方の端末の記録が丸ごと捨てられる
+// 経路が残っていた(例: PCでA入力→スマホがロードを待たずB入力→スマホ側updated_atが新しくなり以後の読込が常に
+// keep-local→Aが二度と採用されず、逆にBだけの状態がDriveへ押し戻されAが消える)。
+// v5は食事記録を1件(log_id)単位で「ローカル ∪ クラウド」の和集合に統合する。どちらの端末の記録も失われず、
+// 過去に上書きで消えた側もローカルに残っていれば次回読込時に自動復元される(自己修復)。
+//   - 食事: 両側の和集合。同一log_idは mt(最終更新ms)が新しい方を採用。削除は tombstones(log_id→削除ms)で
+//     伝播し、別端末との統合で復活しない(墓標は90日でmigrateが自動掃除)。
+//     端末間で「同日・同スロット・同メニュー・同数量」の別log_idが衝突した場合は同一記録とみなし1件に統合
+//     (運用上、同じメニューを2回入れることはないため。同一端末内の複製(onDup)は対象外で保持される)。
+//   - menus / my_foods: 和集合(my_foodsはid単位、削除はtombstonesで伝播)。
+//   - profile / scoring_config / favorites: 従来通り新しい側を土台にし、読込中の操作(ops)を再適用。
+//     各操作はid・時刻をクロージャ外で捕捉+存在チェック済みなので再適用しても二重にならない(冪等)。
+//   - push判定: 統合結果の記録内容(recSig)がクラウドと異なる時のみDriveへ押し戻す。
+//   - hardReplace(update第2引数の全置換)は従来通り「この画面が正」で統合をスキップ。
+function tsMs(m){if(typeof m.mt==="number")return m.mt;const t=Date.parse(m.ts||"");return isNaN(t)?0:t;}
+function mealContentKey(date,m){return date+"|"+m.slot+"|"+(m.food_id||("n:"+(m.raw_name||"")+"|"+(m.raw_store||"")))+"|"+String(m.qty||1);}
+function collectMeals(st){ // logs構造 → [{date,meal}] (元の並び順を保持)
+  const out=[];const logs=st.logs||{};
+  Object.keys(logs).forEach(mo=>{const days=(logs[mo]||{}).days||{};
+    Object.keys(days).forEach(dt=>{((days[dt]||{}).meals||[]).forEach(m=>{if(m&&m.log_id)out.push({date:dt,meal:m});});});});
+  return out;
+}
+function buildLogs(entries){ // [{date,meal}] → logs構造
+  const logs={};
+  entries.forEach(e=>{const mo=monthOf(e.date);if(!logs[mo])logs[mo]={month:mo,days:{}};
+    if(!logs[mo].days[e.date])logs[mo].days[e.date]={meals:[]};logs[mo].days[e.date].meals.push(e.meal);});
+  return logs;
+}
+// base側の並びを保ち、other側にしかない記録を追加。同一log_idはmtが新しい方。tombstonesの記録は除外。
+function unionLogs(base,other,tombs){
+  const byId=new Map();const order=[];
+  collectMeals(base).forEach(e=>{const ex=byId.get(e.meal.log_id);
+    if(!ex){byId.set(e.meal.log_id,e);order.push(e.meal.log_id);}
+    else if(tsMs(e.meal)>tsMs(ex.meal))byId.set(e.meal.log_id,{date:ex.date,meal:e.meal});});
+  const baseKeys=new Set();byId.forEach(e=>baseKeys.add(mealContentKey(e.date,e.meal)));
+  collectMeals(other).forEach(e=>{const ex=byId.get(e.meal.log_id);
+    if(ex){if(tsMs(e.meal)>tsMs(ex.meal))byId.set(e.meal.log_id,{date:ex.date,meal:e.meal});return;}
+    if(baseKeys.has(mealContentKey(e.date,e.meal)))return; // 端末間の同一内容衝突は1件に統合
+    byId.set(e.meal.log_id,e);order.push(e.meal.log_id);});
+  const entries=[];
+  order.forEach(id=>{const e=byId.get(id);if(tombs&&tombs[e.meal.log_id])return;entries.push(e);});
+  return buildLogs(entries);
+}
+function unionTombstones(a,b){
+  const o={};[a,b].forEach(t=>{if(t&&typeof t==="object"&&!Array.isArray(t))
+    Object.keys(t).forEach(k=>{const v=t[k];if(typeof v==="number"&&(!o[k]||v>o[k]))o[k]=v;});});
+  return o;
+}
+function unionList(a,b){const out=[];const s=new Set();(a||[]).concat(b||[]).forEach(x=>{if(x&&!s.has(x)){s.add(x);out.push(x);}});return out;}
+function unionMyFoods(base,other,tombs){
+  const out=[];const seen=new Set();
+  (base||[]).concat(other||[]).forEach(f=>{if(!f||!f.id||seen.has(f.id)||(tombs&&tombs[f.id]))return;seen.add(f.id);out.push(f);});
+  return out;
+}
+// 記録Docに保存される内容の署名(これが一致するならDriveへの押し戻しは不要)
+function recSig(st){
+  const meals=collectMeals(st).map(e=>e.date+"|"+e.meal.slot+"|"+e.meal.log_id+"|"+String(e.meal.qty||1)+"|"+(e.meal.food_id||"")+"|"+(e.meal.raw_name||"")+"|"+(e.meal.raw_store||"")+"|"+tsMs(e.meal)).sort().join(";");
+  return meals+"#"+(st.menus||[]).slice().sort().join(",")
+    +"#"+(st.my_foods||[]).map(f=>f.id).sort().join(",")
+    +"#"+Object.keys(st.tombstones||{}).sort().join(",");
 }
 function mergeCloudArrival(live,mc,ops,baseU,hardReplace){
-  const plan=mergePlan(mc.updated_at||0,baseU,(ops||[]).length,hardReplace);
-  if(plan.mode==="adopt-cloud")return {state:mc,plan};
-  if(plan.mode==="rebase-ops"){
-    const ns=deepCopy(mc);
-    (ops||[]).forEach(fn=>{try{fn(ns);}catch(err){console.warn("読込中操作の再適用をスキップ:",err);}});
+  const mcU=mc.updated_at||0;
+  if(hardReplace){ // 明示的な全置換: この画面を正とし、マスター本体だけクラウド最新を採用
+    const ns=deepCopy(live);
+    ns.food_master=(mc.food_master||[]).filter(f=>f&&f.origin!=="user").concat(ns.my_foods||[]);
     recomputeFlag(ns);
     ns.updated_at=Date.now();
-    return {state:ns,plan};
+    return {state:ns,plan:{mode:"keep-local",push:true}};
   }
-  // keep-local: 自作食品(origin:"user")は記録Doc側が正なので残し、マスター本体はクラウド最新を採用
-  const ns=deepCopy(live);
+  const cloudNewer=mcU>baseU;
+  // 1) profile/scoring_config/favorites等の設定類は新しい側を土台に
+  const ns=deepCopy(cloudNewer?mc:live);
+  // 2) 削除記録・自作食品・メニュー・食事記録は両側の和集合(どちらの端末の記録も失わない)
+  ns.tombstones=unionTombstones(live.tombstones,mc.tombstones);
+  ns.my_foods=unionMyFoods((cloudNewer?mc:live).my_foods,(cloudNewer?live:mc).my_foods,ns.tombstones);
+  ns.logs=unionLogs(cloudNewer?mc:live,cloudNewer?live:mc,ns.tombstones);
+  ns.menus=unionList((cloudNewer?mc:live).menus,(cloudNewer?live:mc).menus);
+  // 3) 読込中の操作を再適用(各操作は冪等なので、和集合に既に入っていても二重にならない)
+  (ops||[]).forEach(fn=>{try{fn(ns);}catch(err){console.warn("読込中操作の再適用をスキップ:",err);}});
+  // 4) 再適用後の整合: 削除済みの除去と同一log_idの重複排除(安全網)
+  ns.logs=unionLogs(ns,{logs:{}},ns.tombstones);
+  // 5) マスター表示を再構成(本体はクラウド最新、自作食品は和集合の結果)
   ns.food_master=(mc.food_master||[]).filter(f=>f&&f.origin!=="user").concat(ns.my_foods||[]);
   recomputeFlag(ns);
-  return {state:ns,plan};
+  // 6) 統合結果がクラウドと異なる時だけ押し戻す
+  const push=(ops||[]).length>0||baseU>mcU||recSig(ns)!==recSig(mc);
+  ns.updated_at=push?Date.now():mcU;
+  return {state:ns,plan:{mode:cloudNewer?((ops||[]).length?"rebase-ops":"adopt-cloud"):"keep-local",push}};
 }
 
 // ═══════════════ 栄養計算 ═══════════════
@@ -900,16 +966,21 @@ function DayScreen({state,date,setDate,update}){
   const {total,per,anyPending}=useMemo(()=>dayTotals(state,date),[state,date]);
   const meals=dayMeals(state,date);
   const bySlot={};SLOTS.forEach(s=>bySlot[s.id]=meals.filter(m=>m.slot===s.id));
+  // 各操作はid・時刻をクロージャの外で確定し、存在チェックしてから追加する(冪等)。
+  // クラウド読込中の操作は到着時に統合結果へ再適用されるため、再実行しても二重登録にならないことが必要。
   function addMeal(slot,payload){
-    update(ns=>{const day=ensureDay(ns,date);day.meals.push({log_id:gid(),slot,food_id:payload.food_id,qty:payload.qty||1,needs_lookup:false,ts:nowTs()});});
+    const meal={log_id:gid(),slot,food_id:payload.food_id,qty:payload.qty||1,needs_lookup:false,ts:nowTs(),mt:Date.now()};
+    update(ns=>{const day=ensureDay(ns,date);if(!day.meals.some(x=>x.log_id===meal.log_id))day.meals.push({...meal});});
   }
   function addRaw(slot,payload){
-    update(ns=>{const day=ensureDay(ns,date);day.meals.push({log_id:gid(),slot,food_id:null,raw_name:payload.raw_name,raw_store:payload.raw_store,qty:1,needs_lookup:true,lookup_status:"pending",ts:nowTs()});if(payload.raw_name&&!(ns.menus||[]).includes(payload.raw_name)){ns.menus=[...(ns.menus||[]),payload.raw_name];}recomputeFlag(ns);});
+    const meal={log_id:gid(),slot,food_id:null,raw_name:payload.raw_name,raw_store:payload.raw_store,qty:1,needs_lookup:true,lookup_status:"pending",ts:nowTs(),mt:Date.now()};
+    update(ns=>{const day=ensureDay(ns,date);if(!day.meals.some(x=>x.log_id===meal.log_id))day.meals.push({...meal});if(payload.raw_name&&!(ns.menus||[]).includes(payload.raw_name)){ns.menus=[...(ns.menus||[]),payload.raw_name];}recomputeFlag(ns);});
   }
   function copyPrev(){
     const prev=addD(date,-1);const pm=dayMeals(state,prev);
     if(!pm.length)return;
-    update(ns=>{const day=ensureDay(ns,date);pm.forEach(m=>day.meals.push({...m,log_id:gid(),ts:nowTs()}));});
+    const adds=pm.map(m=>({...m,log_id:gid(),ts:nowTs(),mt:Date.now()}));
+    update(ns=>{const day=ensureDay(ns,date);adds.forEach(m=>{if(!day.meals.some(x=>x.log_id===m.log_id))day.meals.push({...m});});});
   }
   return (
     <div>
@@ -944,15 +1015,15 @@ function DayScreen({state,date,setDate,update}){
       {adding&&<AddSheet state={state} date={date} slot={adding} onClose={()=>setAdding(null)}
         onAdd={(p)=>addMeal(adding,p)} onAddRaw={(p)=>addRaw(adding,p)}/>}
       {editing&&<MealEditSheet state={state} meal={editing} onClose={()=>setEditing(null)}
-        onSave={(p)=>{update(ns=>{const m=findMeal(ns,date,editing.log_id);if(m){m.qty=p.qty;if(m.food_id===null){
+        onSave={(p)=>{const mt=Date.now();update(ns=>{const m=findMeal(ns,date,editing.log_id);if(m){m.qty=p.qty;m.mt=mt;if(m.food_id===null){
           // 改名時はmenusにも新名称を追加しないとCowork補完の対象にならない(旧バグ: 改名すると永遠に保留のままだった)
           const nn=(p.raw_name||"").trim();
           if(nn){m.raw_name=nn;if(!(ns.menus||[]).includes(nn))ns.menus=[...(ns.menus||[]),nn];}
           m.raw_store=(p.raw_store||"").trim();
           recomputeFlag(ns);
         }}});setEditing(null);}}
-        onDelete={()=>{update(ns=>{const day=ensureDay(ns,date);day.meals=day.meals.filter(x=>x.log_id!==editing.log_id);});setEditing(null);}}
-        onDup={()=>{update(ns=>{const day=ensureDay(ns,date);const src=day.meals.find(x=>x.log_id===editing.log_id);if(src)day.meals.push({...src,log_id:gid(),ts:nowTs()});});setEditing(null);}}/>}
+        onDelete={()=>{const dts=Date.now();update(ns=>{const day=ensureDay(ns,date);day.meals=day.meals.filter(x=>x.log_id!==editing.log_id);ns.tombstones=ns.tombstones||{};ns.tombstones[editing.log_id]=dts;});setEditing(null);}}
+        onDup={()=>{const nid=gid(),nts=nowTs(),nmt=Date.now();update(ns=>{const day=ensureDay(ns,date);const src=day.meals.find(x=>x.log_id===editing.log_id);if(src&&!day.meals.some(x=>x.log_id===nid))day.meals.push({...src,log_id:nid,ts:nts,mt:nmt});});setEditing(null);}}/>}
     </div>
   );
 }
@@ -1055,7 +1126,7 @@ function MasterScreen({state,update}){
     });
     setEditing(null);setCreating(false);
   }
-  function delFood(id){update(ns=>{ns.my_foods=(ns.my_foods||[]).filter(x=>x.id!==id);ns.food_master=ns.food_master.filter(x=>x.id!==id);recomputeFlag(ns);});setEditing(null);}
+  function delFood(id){const dts=Date.now();update(ns=>{ns.my_foods=(ns.my_foods||[]).filter(x=>x.id!==id);ns.food_master=ns.food_master.filter(x=>x.id!==id);ns.tombstones=ns.tombstones||{};ns.tombstones[id]=dts;recomputeFlag(ns);});setEditing(null);}
   function toggleFav(id){update(ns=>{const s=new Set(ns.favorites||[]);if(s.has(id))s.delete(id);else s.add(id);ns.favorites=[...s];});}
   function addMenu(){const name=(window.prompt("新しいメニュー名を入力（栄養素はCoworkが後で補完します）")||"").trim();if(!name)return;update(ns=>{if(!(ns.menus||[]).includes(name))ns.menus=[...(ns.menus||[]),name];recomputeFlag(ns);});}
   return (
@@ -1264,6 +1335,7 @@ function SettingsScreen({state,update,reload,cloud}){
     if(parsed.logs)ns.logs=parsed.logs;
     if(Array.isArray(parsed.menus))ns.menus=parsed.menus;
     if(Array.isArray(parsed.favorites))ns.favorites=parsed.favorites;
+    if(parsed.tombstones&&typeof parsed.tombstones==="object"&&!Array.isArray(parsed.tombstones))ns.tombstones={...(ns.tombstones||{}),...parsed.tombstones};
     // 食品マスター本体はクラウド管理(保存時に除外)のため、永続化できる自作食品(origin:"user")のみ取り込む
     const uf=(Array.isArray(parsed.my_foods)?parsed.my_foods:[]).concat(
       Array.isArray(parsed.food_master)?parsed.food_master.filter(f=>f&&f.origin==="user"):[]);
@@ -1368,13 +1440,16 @@ function App(){
   const [cloud,setCloud]=useState({cls:"sync",txt:"読み込み中"});
   const loadedRef=useRef(false);
   const timerRef=useRef(null);
-  const firstSaveSkip=useRef(true);
+  // 「このstateオブジェクトのコミットではDriveへ保存しない」印(ローカル読込直後・クラウド採用直後)。
+  // 真偽フラグだとeffectの遅延実行で別コミットに消費される競合があるため、オブジェクト同一性で対にする。
+  const skipSaveRef=useRef([]);
   const stateRef=useRef(null);
   const syncRef=useRef("boot");      // "boot" | "loading"(クラウドGET中) | "ready"
   const pendingOpsRef=useRef([]);    // クラウド読込中に行った操作(統合時に再適用するため記録)
   const hardReplaceRef=useRef(false);// 読込中にstate全置換(update第2引数)があった場合は現在の画面を正とする
   const baseUpdatedRef=useRef(0);    // 読込開始時点のupdated_at(クラウドとの新旧判定の基準)
   const loadingRef=useRef(false);    // 読込の多重実行防止(再読み込み連打等)
+  const lastLoadRef=useRef(0);       // 最後に読込を終えた時刻(バックグラウンド復帰時の自動再読込の判定用)
 
   const doLoad=useCallback(async()=>{
     if(loadingRef.current)return;
@@ -1384,7 +1459,7 @@ function App(){
     if(!stateRef.current){
       const base=migrate(loadLocal()||freshState());
       stateRef.current=base;
-      firstSaveSkip.current=true;
+      skipSaveRef.current.push(base); // ローカルから読んだだけの状態はDriveへ送らない
       loadedRef.current=true;
       setState(base);
     }
@@ -1397,20 +1472,27 @@ function App(){
     setCloud({cls:"sync",txt:"Drive読込中・記録できます"});
     // 2) クラウドは裏で取得し、到着したら読込中の操作を失わないように統合する(mergeCloudArrival)
     const cloudData=await loadCloud();
-    const ops=pendingOpsRef.current;pendingOpsRef.current=[];
-    const hardReplace=hardReplaceRef.current;hardReplaceRef.current=false;
-    const baseU=baseUpdatedRef.current;
-    syncRef.current="ready";
-    loadingRef.current=false;
     if(!cloudData){
+      // 読込中の操作はローカル反映済み(次回の読込成功時に和集合統合でDriveへも反映される)
+      pendingOpsRef.current=[];hardReplaceRef.current=false;
+      syncRef.current="ready";
+      loadingRef.current=false;
+      lastLoadRef.current=Date.now();
       setCloud({cls:gasUrl()?"err":"",txt:gasUrl()?"ローカル（同期失敗）":"ローカル保存"});
       return;
     }
     const mc=migrate(cloudData);
-    const plan=mergePlan(mc.updated_at||0,baseU,ops.length,hardReplace);
-    firstSaveSkip.current=!plan.push; // 押し戻しが必要な時だけ、下の保存effectがDriveへ送る
-    setState(prev=>mergeCloudArrival(prev,mc,ops,baseU,hardReplace).state);
-    if(plan.push)setCloud({cls:"sync",txt:plan.mode==="rebase-ops"?"変更を統合中…":"ローカル→Drive反映中…"});
+    // ここからsetStateまでは同期的に行う(途中に操作が割り込むと、その操作がopsにも統合結果にも入らない隙間ができるため)
+    const ops=pendingOpsRef.current;pendingOpsRef.current=[];
+    const hardReplace=hardReplaceRef.current;hardReplaceRef.current=false;
+    const baseU=baseUpdatedRef.current;
+    const res=mergeCloudArrival(stateRef.current,mc,ops,baseU,hardReplace);
+    syncRef.current="ready";
+    loadingRef.current=false;
+    lastLoadRef.current=Date.now();
+    if(!res.plan.push){skipSaveRef.current.push(res.state);if(skipSaveRef.current.length>4)skipSaveRef.current.shift();} // 押し戻しが必要な時だけ、下の保存effectがDriveへ送る
+    setState(()=>res.state);
+    if(res.plan.push)setCloud({cls:"sync",txt:res.plan.mode==="keep-local"?"ローカル→Drive反映中…":"変更を統合中…"});
     else setCloud({cls:"ok",txt:"Drive同期済"});
   },[]);
   useEffect(()=>{doLoad();},[doLoad]);
@@ -1419,14 +1501,17 @@ function App(){
     if(!state||!loadedRef.current)return;
     stateRef.current=state;
     saveLocal(state);
-    if(firstSaveSkip.current){firstSaveSkip.current=false;return;}
+    {const ix=skipSaveRef.current.indexOf(state);if(ix>=0){skipSaveRef.current.splice(ix,1);return;}}
     if(syncRef.current==="loading")return; // クラウド読込中はローカル保存のみ。古い土台の上書きを防ぎ、到着時にmergeCloudArrivalで統合してから送る
     if(!gasUrl())return;
     if(timerRef.current)clearTimeout(timerRef.current);
     setCloud({cls:"sync",txt:"保存中…"});
     timerRef.current=setTimeout(async()=>{
       timerRef.current=null;
-      const r=await saveCloud(state);
+      if(syncRef.current==="loading")return; // 読込が始まっていたら、到着時の統合(mergeCloudArrival)がまとめて反映する
+      // 発火時点の最新stateを送る: 古いコミットのeffectが遅れて発火しても、古い土台をDriveへ書かない
+      const cur=stateRef.current;
+      const r=await saveCloud(cur);
       setCloud(r.ok?{cls:"ok",txt:"Drive保存済"}:{cls:"err",txt:"保存失敗（ローカル可）",detail:r.error});
     },1200);
   },[state]);
@@ -1439,20 +1524,23 @@ function App(){
         flushBeacon(stateRef.current);
       }
     };
-    const onVis=()=>{if(document.visibilityState==="hidden")flush();};
+    const onVis=()=>{
+      if(document.visibilityState==="hidden"){flush();return;}
+      // 復帰時: 古い画面のまま記録→直接POSTすると他端末の記録を上書きしうるので、しばらく経っていたら再読込(非ブロッキング・記録はそのまま可能)
+      if(document.visibilityState==="visible"&&syncRef.current==="ready"&&Date.now()-lastLoadRef.current>300000)doLoad();
+    };
     window.addEventListener("pagehide",flush);
     document.addEventListener("visibilitychange",onVis);
     return ()=>{window.removeEventListener("pagehide",flush);document.removeEventListener("visibilitychange",onVis);};
-  },[]);
+  },[doLoad]);
 
   const update=useCallback((fn,replace)=>{
     if(syncRef.current==="loading"){
-      // クラウド読込中の操作は記録しておき、到着時にクラウドが新しければその上に再適用する(mergeCloudArrival)
+      // クラウド読込中の操作は記録しておき、到着時に統合結果へ再適用する(mergeCloudArrival)。各操作は冪等であること。
       if(replace)hardReplaceRef.current=true;
       else if(fn)pendingOpsRef.current.push(fn);
-    }else{
-      firstSaveSkip.current=false; // 読込直後の採用と同一バッチになっても、この操作の保存がスキップされないように
     }
+    // 操作は毎回新しいstateオブジェクトを作るので、skipSaveRef(採用直後の保存スキップ)と同一バッチでも保存は行われる
     setState(prev=>{const ns=replace?migrate(replace):deepCopy(prev);if(fn)fn(ns);ns.updated_at=Date.now();return ns;});
   },[]);
 
@@ -1499,6 +1587,6 @@ class ErrorBoundary extends React.Component{
 const root=ReactDOM.createRoot(document.getElementById("root"));
 root.render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
-<!-- v4: 非ブロッキング読込(ローカル先行表示・読込中の記録をクラウド到着時に統合) / 追加シートの並び順をシートを開いている間固定 -->
+<!-- v5: 同期をレコード単位の和集合統合に変更(PC/スマホ別々に入力しても両方残る・削除は墓標で伝播・自己修復) / バックグラウンド復帰時の自動再読込 / v4: 非ブロッキング読込・追加シート並び順固定 -->
 </body>
 </html>
