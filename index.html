@@ -591,12 +591,12 @@ function QtyStepper({val,onChange}){
   function commit(x){const v=parseFloat(x);if(!isNaN(v)&&v>0){onChange(round(clamp(v,0.1,99),2));}else{setTxt(String(val));}}
   return (
     <div className="row gap6" style={{alignItems:"center"}}>
-      <button className="x" onClick={()=>onChange(Math.max(0.1,round(val-0.25,2)))}>−</button>
+      <button className="x" onClick={()=>onChange(Math.max(0.1,round(val>3?val-1:val-0.25,2)))}>−</button>
       <div className="row" style={{alignItems:"center",gap:2,background:"var(--surface-2)",border:"1px solid var(--border)",borderRadius:8,padding:"0 8px"}}>
         <span className="muted sm">×</span>
         <input className="mono" inputMode="decimal" value={txt} onChange={e=>setTxt(e.target.value)} onFocus={e=>e.target.select()} onBlur={e=>commit(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")e.currentTarget.blur();}} style={{width:46,textAlign:"center",fontSize:14,background:"transparent",border:"none",color:"var(--text)",outline:"none",padding:"7px 0"}}/>
       </div>
-      <button className="x" onClick={()=>onChange(round(val+0.25,2))}>＋</button>
+      <button className="x" onClick={()=>onChange(round(val>=3?val+1:val+0.25,2))}>＋</button>
     </div>
   );
 }
