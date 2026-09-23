@@ -275,8 +275,15 @@ function msgOf(e){
 function validCloud(d){return !!(d&&typeof d==="object"&&!d.error&&d.food_master!==undefined);}
 function validSync(d){return !!(d&&typeof d==="object"&&!d.error&&(d.unchanged===true||d.partial===true||d.food_master!==undefined));}
 
+// iPhone(Safari/iOS版Chromeの共通部品WebKit)には「画面に戻った直後に始めた通信が20〜40秒止まった末に失敗する」
+// 不具合がある。画面に戻った・読み込んだ直後は少し待ってから通信を始める。
+let RESUME_AT=Date.now();
+const RESUME_GAP=900;
+function markResume(){RESUME_AT=Date.now();}
+async function afterResume(){const w=RESUME_AT+RESUME_GAP-Date.now();if(w>0)await new Promise(r=>setTimeout(r,w));}
 // 時間切れ付きfetch(旧版は時間切れが無く、応答が遅いと延々待っていた)
 async function fetchJson(url,opts,ms){
+  await afterResume();
   const ctl=typeof AbortController!=="undefined"?new AbortController():null;
   const timer=ctl?setTimeout(()=>ctl.abort(),ms):null;
   try{
@@ -289,7 +296,8 @@ async function fetchJson(url,opts,ms){
     throw e;
   }finally{if(timer)clearTimeout(timer);}
 }
-function jsonp(url,ms){
+async function jsonp(url,ms){
+  await afterResume();
   return new Promise((resolve,reject)=>{
     const cb="_mcb"+Date.now()+Math.floor(Math.random()*1e4);
     const s=document.createElement("script");
@@ -321,11 +329,13 @@ async function loadCloudFull(){
 // 差分取得(v6)。変更番号が同じなら {unchanged:true} だけが返る。旧GASは全件を返す(=validCloud)。
 async function syncCloud(rev,nv){
   const from=addD(today(),-(RECENT_DAYS-1));
-  const d=await getCloud("&action=sync&rev="+(rev||0)+"&nv="+(nv||0)+"&from="+from,25000);
+  const d=await getCloud("&action=sync&rev="+(rev||0)+"&nv="+(nv||0)+"&from="+from,20000);
   if(d&&d.error)throw new Error("Drive側: "+d.error);
   if(!validSync(d))throw new Error("応答の形式が不正です");
   return d;
 }
+// 栄養素マスターのキャッシュを温めてもらう(GAS側で十数秒かかることがある。画面は待たない)
+async function warmCloud(){return fetchJson(gasUrl()+"?key="+encodeURIComponent(apiKey())+"&action=warm",{cache:"no-store"},90000);}
 function opsUrl(){return gasUrl()+"?key="+encodeURIComponent(apiKey())+"&action=ops";}
 function blobSize(s){try{return new Blob([s]).size;}catch{return s.length*3;}}
 // 送信待ちの先頭から、1回で送る分(約50KBまで)を取り出す。閉じる瞬間の送信は64KBが上限のため。
@@ -1529,7 +1539,7 @@ function SettingsScreen({state,update,reload,syncNow,cloud,net}){
           <div>GAS {nt.api===6?"v6（差分同期）":nt.api===0?"旧版（全体同期）":"確認中"} · 未送信 {nt.pending||0}件</div>
           <div>最終同期 {nt.lastOk?hhmm(nt.lastOk):"—"} · 全件取得 {nt.lastFull?fmtShort(toStr(new Date(nt.lastFull)))+" "+hhmm(nt.lastFull):"—"}</div>
           <div>所要時間 受信 {nt.pullMs!=null?nt.pullMs+"ms":"—"} / 送信 {nt.pushMs!=null?nt.pushMs+"ms":"—"}</div>
-          <div>端末ID {nt.dev||"—"}</div>
+          <div>端末ID {nt.dev||"—"} · 接続先 …{gasUrl().replace(/\/exec.*$/,"").slice(-8)}{CFG.gasUrl&&CFG.gasUrl.trim()!==DEFAULT_GAS_URL?"（端末個別の設定）":""}</div>
         </div>
         {nt.api===0&&<div className="tiny" style={{marginTop:8,color:"var(--warn)"}}>GASが旧版のため全体同期で動作しています。v6のGASをデプロイすると差分同期になります。</div>}
         {cloud.detail&&<div className="tiny" style={{marginTop:8,color:"var(--danger)"}}>直近のエラー: {cloud.detail}</div>}
@@ -1621,6 +1631,7 @@ function App(){
   const [net,setNet]=useState({});      // 同期の詳細(設定画面に表示)
   const [notice,setNotice]=useState(""); // 重複統合などのお知らせ
   const stateRef=useRef(null);          // 常に最新の状態(同期的に更新。統合・差分計算の入力)
+  const runRef=useRef(null);            // run の最新(pull内から呼ぶため)
   const S=useRef({busy:false,bg:false,again:false,againOpts:null,wantFull:false,needPull:false,lastCheck:0,lastOk:0,
     lastAct:Date.now(),err:"",fails:0,retryT:null,flushT:null,pullMs:null,pushMs:null,pulledOnce:false,pending:0});
 
@@ -1641,7 +1652,7 @@ function App(){
     const s=S.current,n=loadOutbox().length,m=syncMeta();s.pending=n;
     let c;
     if(!gasUrl())c={cls:"",txt:"ローカル保存"};
-    else if(s.busy&&!s.bg)c={cls:"sync",txt:n?"送信中…":"同期中…"};
+    else if(s.busy&&!s.bg)c={cls:"sync",txt:n?"送信中…":"同期中…",detail:s.err?s.err+"（再試行中）":""};
     else if(s.err)c={cls:"err",txt:n?`未送信${n}件・再試行中`:"同期失敗・再試行中",detail:s.err};
     else if(n)c={cls:"sync",txt:`送信待ち${n}件`};
     else if(s.lastOk)c={cls:"ok",txt:"同期済 "+hhmm(s.lastOk)};
@@ -1710,6 +1721,10 @@ function App(){
     saveSync();
     s.pulledOnce=true;s.needPull=false;
     if(raw.unchanged)return;
+    if(raw.master_pending&&!s.warming){ // マスターの準備を裏で依頼し、終わったらもう一度取りに行く
+      s.warming=true;
+      warmCloud().catch(()=>{}).then(()=>{s.warming=false;s.needPull=true;if(runRef.current)runRef.current();});
+    }
     const hasFM=Array.isArray(raw.food_master)&&raw.food_master.length>0;
     const partial=raw.partial===true;
     const cloudHas={profile:!!(raw.profile&&typeof raw.profile==="object"),scoring_config:!!(raw.scoring_config&&typeof raw.scoring_config==="object"),favorites:Array.isArray(raw.favorites)};
@@ -1758,6 +1773,7 @@ function App(){
     refreshChip();
     if(s.again){const ao=s.againOpts;s.again=false;s.againOpts=null;run(ao);}
   },[flush,pull,refreshChip]);
+  runRef.current=run;
 
   const scheduleFlush=useCallback(()=>{
     const s=S.current;
@@ -1783,9 +1799,10 @@ function App(){
     };
     // 利用者の操作(画面に戻る・フォーカス)は再試行待ちでもすぐ確認する。定期確認は再試行待ちの間は休む。
     const check=(gap)=>{if(document.visibilityState==="hidden")return;if(Date.now()-s.lastCheck<gap&&!loadOutbox().length)return;run();};
-    const onVis=()=>{if(document.visibilityState==="hidden"){onHide();return;}rollToday();check(1500);};
-    const onFocus=()=>{rollToday();check(1500);};
-    const onOnline=()=>run();
+    const onVis=()=>{if(document.visibilityState==="hidden"){onHide();return;}markResume();rollToday();check(1500);};
+    const onFocus=()=>{markResume();rollToday();check(1500);};
+    const onShow=(e)=>{markResume();if(e&&e.persisted)check(0);};
+    const onOnline=()=>{markResume();run();};
     const onAct=()=>{const now=Date.now();const idle=now-s.lastAct;s.lastAct=now;if(idle>15000)check(8000);};
     const tick=setInterval(()=>{
       if(document.visibilityState==="hidden")return;
@@ -1800,6 +1817,7 @@ function App(){
     const actEv=["pointerdown","pointermove","keydown","touchstart","wheel"];
     document.addEventListener("visibilitychange",onVis);
     window.addEventListener("pagehide",onHide);
+    window.addEventListener("pageshow",onShow);
     window.addEventListener("focus",onFocus);
     window.addEventListener("online",onOnline);
     actEv.forEach(ev=>window.addEventListener(ev,onAct,{passive:true}));
@@ -1807,6 +1825,7 @@ function App(){
       clearInterval(tick);
       document.removeEventListener("visibilitychange",onVis);
       window.removeEventListener("pagehide",onHide);
+      window.removeEventListener("pageshow",onShow);
       window.removeEventListener("focus",onFocus);
       window.removeEventListener("online",onOnline);
       actEv.forEach(ev=>window.removeEventListener(ev,onAct));
