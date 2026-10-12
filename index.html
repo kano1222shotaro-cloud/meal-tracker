@@ -97,11 +97,10 @@ input,select,textarea{font-family:inherit}
 .coach2 .chara-wrap{position:relative;height:calc(var(--stage-h) * 1.12);filter:drop-shadow(0 10px 18px rgba(0,0,0,.55));user-select:none;-webkit-user-select:none}
 .coach2 .chara{display:block;height:100%;width:auto;max-width:none;-webkit-user-drag:none;pointer-events:none}
 .coach2 .chara.blink{position:absolute;left:0;top:0;opacity:0}
-.coach2 .plate{position:relative;z-index:2;margin-top:-26px;width:min(100%,300px);border-radius:16px;padding:2px;background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.02))}
+.coach2 .plate{position:relative;z-index:2;margin-top:-26px;width:min(100%,240px);border-radius:16px;padding:2px;background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.02))}
 .coach2 .plate-in{display:flex;align-items:baseline;justify-content:center;gap:6px;border-radius:14px;padding:10px 16px 9px;background:var(--plate-bg,var(--surface-3));border:1px solid var(--plate-line,var(--border-strong));box-shadow:0 10px 30px rgba(0,0,0,.4)}
 .coach2 .num{font-family:var(--mono);font-size:40px;font-weight:700;line-height:1;color:var(--plate-col,var(--text));letter-spacing:-.02em}
 .coach2 .unit{font-size:14px;color:var(--text-dim)}
-.coach2 .tiername{margin-left:10px;font-size:13px;font-weight:500;color:var(--plate-col,var(--text-dim));padding-left:12px;border-left:1px solid var(--border-strong);white-space:nowrap}
 .coach2 .bub{position:relative;margin-top:14px;width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:12.5px;line-height:1.7}
 .coach2 .bub:before{content:"";position:absolute;left:50%;top:-8px;margin-left:-8px;border:8px solid transparent;border-top:0;border-bottom-color:var(--border)}
 .coach2 .bub:after{content:"";position:absolute;left:50%;top:-7px;margin-left:-7px;border:7px solid transparent;border-top:0;border-bottom-color:var(--surface-2)}
@@ -801,7 +800,7 @@ function scoreColor(ratio){if(ratio>=0.85)return "var(--ok)";if(ratio>=0.6)retur
 // ═══════════════ 表情の段階(6段階) ═══════════════
 // 低〜中域は本人の実分布(レポート点数)で細かく割り、上2段は「あるべき姿」の絶対水準。
 //   1: <35 悲しい / 2: 35–49 困り顔 / 3: 50–59 ふつう / 4: 60–69 笑顔 / 5: 70–84 にっこり(良好ライン) / 6: 85+ 大喜び
-const TIER_NAMES={0:"待機",1:"しゅん",2:"困り笑い",3:"穏やか",4:"にっこり",5:"大喜び",6:"感激"};
+const TIER_NAMES={0:"待機",1:"しゅん",2:"困り笑い",3:"穏やか",4:"にっこり",5:"大喜び",6:"感激"}; // 画面には出さない(表情で分かる)。段階の呼び名として保持
 // プレート・グロー・吹き出しの色(段階色に連動。待機は faint)
 const COACH_COL={faint:["var(--text-faint)","rgba(105,114,138,.14)","var(--border-strong)","rgba(105,114,138,.18)"],
   danger:["var(--danger)","rgba(242,85,122,.14)","rgba(242,85,122,.45)","rgba(242,85,122,.20)"],
@@ -999,7 +998,6 @@ function ScoreCard({totals,profile,cfg,pending,stage,date,count}){
         <div className="stage"><div className="glow"/><CoachImg tier={cm.tier}/></div>
         <div className="plate"><div className="plate-in">
           <span className="num">{empty?"—":Math.round(sc.mealScore)}</span><span className="unit">点</span>
-          <span className="tiername">{empty?"記録なし":TIER_NAMES[cm.tier]||""}</span>
         </div></div>
         <div className="bub" role="status"><div>{cm.l1}</div>{cm.l2&&<div className="l2">{cm.l2}</div>}</div>
       </div>
@@ -2143,7 +2141,7 @@ class ErrorBoundary extends React.Component{
 const root=ReactDOM.createRoot(document.getElementById("root"));
 root.render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
-<!-- v8(2026-10-12): 栄養士キャラをアニメ調の立ち絵(ChenkinNoob-XL生成・A1オレンジ髪・腿上・7段階+閉じ目差分6枚・WebP埋め込み約1MB)に刷新 / あすけん方式の新パネル(キャラ中央・点数プレート・下向き吹き出し。上下揺れなし・まばたきのみ、reduced-motionで停止) / 段階名を 待機・しゅん・困り笑い・穏やか・にっこり・大喜び・感激 に / 書き出し文を表情に合わせて調整 / 段階判定を表示と同じ整数点で行う(69.6→70点は大喜び) / coachSvg(手描きSVG)は削除(v7バックアップに残る) -->
+<!-- v8(2026-10-12): 栄養士キャラをアニメ調の立ち絵(ChenkinNoob-XL生成・A1オレンジ髪・腿上・7段階+閉じ目差分6枚・WebP埋め込み約1MB)に刷新 / あすけん方式の新パネル(キャラ中央・点数プレート・下向き吹き出し。上下揺れなし・まばたきのみ、reduced-motionで停止。段階名は表示しない) / 段階の呼び名を 待機・しゅん・困り笑い・穏やか・にっこり・大喜び・感激 に / 書き出し文を表情に合わせて調整 / 段階判定を表示と同じ整数点で行う(69.6→70点は大喜び) / coachSvg(手描きSVG)は削除(v7バックアップに残る) -->
 <!-- v7(2026-10-12): 採点v3=週次レポート(食事運動スコア.md)と同じ式(配点15/15/15/12/12/8/8/5/5/5・満点ライン/0点ライン直線)・目標値をEER2500/たんぱく質72g/鉄7.5mgへ移行 / 段階評価(朝25%・昼35%・夕40%、間食のみ10%、過去日は1日) / 栄養士キャラクター(表情6段階・コメント) / 「食事なし」(抜いた)記録 -->
 <!-- v6(2026-09-23): 差分同期(変更した記録だけ送受信・閉じても届く駆け込み送信・送信待ち箱と自動再試行・変更番号による軽量確認・表示中の自動取り込み・読込失敗後の古い土台上書きを解消) / v5: 同期をレコード単位の和集合統合に変更(PC/スマホ別々に入力しても両方残る・削除は墓標で伝播・自己修復) / バックグラウンド復帰時の自動再読込 / v4: 非ブロッキング読込・追加シート並び順固定 -->
 </body>
